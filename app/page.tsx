@@ -1,65 +1,143 @@
-import Image from "next/image";
+'use client';
+
+import Link from 'next/link';
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-8">
+        <h1 className="text-4xl font-bold text-purple-600 mb-4">
+          🚀 HandlePay Onboarding PoC
+        </h1>
+        <p className="text-slate-600 mb-8">
+          Test the Phase 1 Foundation - Usecases & Username Reservation
+        </p>
+
+        <div className="space-y-4">
+          <Link
+            href="/phase1/onboarding"
+            className="block p-6 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] group"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-2">
+                  Phase 1: Onboarding Flow
+                </h2>
+                <p className="text-purple-100">
+                  Test usecase selection and username reservation
+                </p>
+              </div>
+              <svg
+                className="w-8 h-8 text-white group-hover:translate-x-2 transition-transform"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 7l5 5m0 0l-5 5m5-5H6"
+                />
+              </svg>
+            </div>
+          </Link>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Link
+              href="/phase1/usecases"
+              className="block p-4 border-2 border-purple-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-all"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              <h3 className="font-semibold text-purple-900 mb-1">
+                📋 Usecases
+              </h3>
+              <p className="text-sm text-slate-600">
+                View and select usecases
+              </p>
+            </Link>
+
+            <Link
+              href="/phase1/username"
+              className="block p-4 border-2 border-purple-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-all"
             >
-              Learning
-            </a>{" "}
-            center.
+              <h3 className="font-semibold text-purple-900 mb-1">
+                👤 Username
+              </h3>
+              <p className="text-sm text-slate-600">
+                Check & reserve username
+              </p>
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-8 p-4 bg-slate-100 rounded-lg">
+          <p className="text-sm text-slate-600 font-mono">
+            <span className="font-semibold">API:</span> http://localhost:3001/api/v1
+          </p>
+          <p className="text-xs text-slate-500 mt-2">
+            Make sure the backend is running before testing
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="mt-6 border-t pt-6">
+          <h3 className="font-semibold text-slate-900 mb-3">Phase 1 - Complete ✅</h3>
+          <ul className="space-y-2 text-sm text-slate-600">
+            <li className="flex items-center gap-2">
+              <span className="text-green-500">✓</span> Usecases Module & Admin UI
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="text-green-500">✓</span> Username Validation
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="text-green-500">✓</span> Username Reservation (30min TTL)
+            </li>
+          </ul>
         </div>
-      </main>
+
+        <div className="mt-6 border-t pt-6">
+          <h3 className="font-semibold text-slate-900 mb-3">Phase 2 - Ready to Test ⚡</h3>
+          <Link
+            href="/phase2/passkey-test"
+            className="block p-4 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] group mb-4"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white mb-1">
+                  🔐 Passkey Authentication
+                </h2>
+                <p className="text-blue-100 text-sm">
+                  Test WebAuthn passkey registration and login
+                </p>
+              </div>
+              <svg
+                className="w-6 h-6 text-white group-hover:translate-x-2 transition-transform"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 7l5 5m0 0l-5 5m5-5H6"
+                />
+              </svg>
+            </div>
+          </Link>
+        </div>
+
+        <div className="mt-6 border-t pt-6">
+          <h3 className="font-semibold text-slate-900 mb-3">Coming Next:</h3>
+          <ul className="space-y-2 text-sm text-slate-400">
+            <li className="flex items-center gap-2">
+              <span>⏳</span> Phase 3: Wallet Creation (EVM + SVM)
+            </li>
+            <li className="flex items-center gap-2">
+              <span>⏳</span> Phase 4: Notifications Module
+            </li>
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }
