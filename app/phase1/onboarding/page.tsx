@@ -100,7 +100,10 @@ export default function OnboardingPage() {
         try {
             const response = await fetch(`${API_BASE}/onboarding/reserve-username`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
+                },
                 body: JSON.stringify({
                     username,
                     usecaseId: selectedUsecase.id,
