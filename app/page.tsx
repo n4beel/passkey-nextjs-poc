@@ -44,32 +44,6 @@ export default function Home() {
               </svg>
             </div>
           </Link>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Link
-              href="/phase1/usecases"
-              className="block p-4 border-2 border-purple-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-all"
-            >
-              <h3 className="font-semibold text-purple-900 mb-1">
-                📋 Usecases
-              </h3>
-              <p className="text-sm text-slate-600">
-                View and select usecases
-              </p>
-            </Link>
-
-            <Link
-              href="/phase1/username"
-              className="block p-4 border-2 border-purple-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-all"
-            >
-              <h3 className="font-semibold text-purple-900 mb-1">
-                👤 Username
-              </h3>
-              <p className="text-sm text-slate-600">
-                Check & reserve username
-              </p>
-            </Link>
-          </div>
         </div>
 
         <div className="mt-8 p-4 bg-slate-100 rounded-lg">
