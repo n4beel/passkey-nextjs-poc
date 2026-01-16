@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+
 export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center p-4">
@@ -72,7 +74,7 @@ export default function Home() {
 
         <div className="mt-8 p-4 bg-slate-100 rounded-lg">
           <p className="text-sm text-slate-600 font-mono">
-            <span className="font-semibold">API:</span> http://localhost:3001/api/v1
+            <span className="font-semibold">API:</span> {API_BASE}
           </p>
           <p className="text-xs text-slate-500 mt-2">
             Make sure the backend is running before testing
