@@ -42,13 +42,13 @@ export default function PasskeyRegistrationPage() {
             }
 
             const options = await optionsRes.json();
-            console.log('Registration options:', options);
+
 
             // Step 2: Create passkey using @simplewebauthn/browser
             setStep('registering');
 
             const attResp = await startRegistration(options);
-            console.log('Attestation response:', attResp);
+
 
             // Step 3: Send credential to backend for verification
             const verifyRes = await fetch(`${API_BASE}/auth/passkey/register/verify`, {
