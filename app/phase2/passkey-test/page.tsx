@@ -29,7 +29,10 @@ export default function PasskeyRegistrationPage() {
             // Step 1: Get registration options from backend
             const optionsRes = await fetch(`${API_BASE}/auth/passkey/register/options`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
+                },
                 body: JSON.stringify({ reservationToken }),
             });
 
@@ -50,7 +53,10 @@ export default function PasskeyRegistrationPage() {
             // Step 3: Send credential to backend for verification
             const verifyRes = await fetch(`${API_BASE}/auth/passkey/register/verify`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
+                },
                 body: JSON.stringify({
                     reservationToken,
                     credential: attResp,
@@ -95,7 +101,10 @@ export default function PasskeyRegistrationPage() {
             // Step 1: Get login options
             const optionsRes = await fetch(`${API_BASE}/auth/passkey/login/options`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
+                },
                 body: JSON.stringify({ username }),
             });
 
@@ -114,7 +123,10 @@ export default function PasskeyRegistrationPage() {
             // Step 3: Send credential to backend
             const verifyRes = await fetch(`${API_BASE}/auth/passkey/login/verify`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
+                },
                 body: JSON.stringify({
                     username,
                     credential: asseResp,

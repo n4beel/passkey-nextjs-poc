@@ -45,7 +45,9 @@ export default function OnboardingPage() {
 
     const loadUsecases = async () => {
         try {
-            const response = await fetch(`${API_BASE}/onboarding/usecases`);
+            const response = await fetch(`${API_BASE}/onboarding/usecases`, {
+                headers: { 'ngrok-skip-browser-warning': 'true' },
+            });
 
             if (!response.ok) {
                 console.error('Failed to fetch usecases:', response.status, response.statusText);
@@ -73,7 +75,10 @@ export default function OnboardingPage() {
         try {
             const response = await fetch(`${API_BASE}/onboarding/check-username`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
+                },
                 body: JSON.stringify({ username }),
             });
 
