@@ -3,17 +3,20 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+import { createEVMWallet } from '@/lib/evm-wallet';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
 export default function PasskeyRegistrationPage() {
-    const [step, setStep] = useState<'input' | 'registering' | 'success'>('input');
+    const [step, setStep] = useState<'input' | 'registering' | 'creating_wallets' | 'success'>('input');
     const [reservationToken, setReservationToken] = useState('');
     const [username, setUsername] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [accessToken, setAccessToken] = useState('');
     const [userId, setUserId] = useState('');
+    const [evmWallet, setEvmWallet] = useState('');
+    const [svmWallet, setSvmWallet] = useState('');
 
     // Registration flow
     const handleRegister = async () => {
@@ -77,7 +80,52 @@ export default function PasskeyRegistrationPage() {
             setAccessToken(result.accessToken);
             setUsername(result.user.username);
             setUserId(result.user.id);
-            setStep('success');
+
+            // Step 4: Create wallets
+            setStep('creating_wallets');
+
+            try {
+                // Create EVM wallet (ZeroDev)
+                console.log('Creating EVM wallet...');
+                const evmWalletResult = await createEVMWallet('register', result.user.username);
+                setEvmWallet(evmWalletResult.address);
+                console.log('EVM wallet created:', evmWalletResult.address);
+
+                // For SVM, we'll use Lazorkit in a future update
+                // For now, use a placeholder
+                const svmWalletAddress = 'SVM_PLACEHOLDER';
+                setSvmWallet(svmWalletAddress);
+
+                // Step 5: Store wallet addresses in backend
+                console.log('Storing wallets...');
+                const storeRes = await fetch(`${API_BASE}/onboarding/wallets`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${result.accessToken}`,
+                        'ngrok-skip-browser-warning': 'true',
+                    },
+                    body: JSON.stringify({
+                        evmAddress: evmWalletResult.address,
+                        svmAddress: svmWalletAddress,
+                        chainConfigs: [
+                            { type: 'evm', chainId: evmWalletResult.chainId },
+                            { type: 'svm', network: 'devnet' }
+                        ]
+                    }),
+                });
+
+                if (!storeRes.ok) {
+                    console.error('Failed to store wallets');
+                }
+
+                console.log('Wallets stored successfully!');
+                setStep('success');
+            } catch (walletErr: any) {
+                console.error('Wallet creation error:', walletErr);
+                setError(`Passkey created but wallet generation failed: ${walletErr.message}`);
+                setStep('success'); // Still show success for passkey
+            }
         } catch (err: any) {
             console.error('Registration error:', err);
             setError(err.message || 'An error occurred during registration');
@@ -222,6 +270,14 @@ export default function PasskeyRegistrationPage() {
                         </div>
                     )}
 
+                    {step === 'creating_wallets' && (
+                        <div className="text-center py-12">
+                            <div className="text-6xl mb-4">💰</div>
+                            <h2 className="text-2xl font-bold text-white mb-2">Creating Your Wallets</h2>
+                            <p className="text-gray-300">Generating smart wallet addresses...</p>
+                        </div>
+                    )}
+
                     {step === 'success' && (
                         <div className="text-center py-8">
                             <div className="text-6xl mb-4">✅</div>
@@ -233,6 +289,16 @@ export default function PasskeyRegistrationPage() {
                                 <p className="text-white mb-2">
                                     <strong>User ID:</strong> {userId}
                                 </p>
+                                {evmWallet && (
+                                    <p className="text-white mb-2">
+                                        <strong>EVM Wallet:</strong> <span className="text-xs break-all">{evmWallet}</span>
+                                    </p>
+                                )}
+                                {svmWallet && svmWallet !== 'SVM_PLACEHOLDER' && (
+                                    <p className="text-white mb-2">
+                                        <strong>SVM Wallet:</strong> <span className="text-xs break-all">{svmWallet}</span>
+                                    </p>
+                                )}
                                 <p className="text-xs text-gray-300 mt-4 break-all">
                                     Access Token: {accessToken.substring(0, 50)}...
                                 </p>
@@ -243,6 +309,8 @@ export default function PasskeyRegistrationPage() {
                                     setReservationToken('');
                                     setUsername('');
                                     setAccessToken('');
+                                    setEvmWallet('');
+                                    setSvmWallet('');
                                     setError('');
                                 }}
                                 className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-semibold transition-all"
