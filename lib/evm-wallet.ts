@@ -58,7 +58,7 @@ export async function createEVMWallet(
         webAuthnKey,
         entryPoint,
         kernelVersion: KERNEL_V3_1,
-        validatorContractVersion: PasskeyValidatorContractVersion.V0_0_2
+        validatorContractVersion: PasskeyValidatorContractVersion.V0_0_3_PATCHED
     })
 
     // 5. Create smart account
