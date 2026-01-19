@@ -26,6 +26,8 @@ export default function OnboardingPage() {
     const [checkMessage, setCheckMessage] = useState('');
     const [reservationResult, setReservationResult] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [avatarUrl, setAvatarUrl] = useState('');
+    const [alternatives, setAlternatives] = useState<Array<{ username: string; avatarUrl: string }>>([]);
 
     useEffect(() => {
         loadUsecases();
@@ -71,6 +73,8 @@ export default function OnboardingPage() {
         setChecking(true);
         setCheckMessage('');
         setUsernameAvailable(false);
+        setAvatarUrl('');
+        setAlternatives([]);
 
         try {
             const response = await fetch(`${API_BASE}/onboarding/check-username`, {
@@ -85,6 +89,8 @@ export default function OnboardingPage() {
             const result = await response.json();
             setUsernameAvailable(result.available);
             setCheckMessage(result.message);
+            setAvatarUrl(result.avatarUrl || '');
+            setAlternatives(result.alternatives || []);
         } catch (error) {
             setCheckMessage('Failed to check username');
         } finally {
@@ -222,6 +228,46 @@ export default function OnboardingPage() {
                                     }`}
                             >
                                 {usernameAvailable ? '✅' : '❌'} {checkMessage}
+                            </div>
+                        )}
+
+                        {/* Display avatar if username is available */}
+                        {usernameAvailable && avatarUrl && (
+                            <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                                <div className="flex items-center gap-3">
+                                    <img
+                                        src={`${API_BASE}${avatarUrl}`}
+                                        alt={`${username} avatar`}
+                                        className="w-12 h-12 rounded-full border-2 border-green-500"
+                                    />
+                                    <div>
+                                        <p className="text-sm font-semibold text-green-700">Your avatar</p>
+                                        <p className="text-xs text-green-600">@{username}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Display username suggestions if not available */}
+                        {!usernameAvailable && alternatives.length > 0 && (
+                            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                <p className="text-sm font-semibold text-blue-700 mb-3">Try these instead:</p>
+                                <div className="space-y-2">
+                                    {alternatives.map((alt) => (
+                                        <button
+                                            key={alt.username}
+                                            onClick={() => setUsername(alt.username)}
+                                            className="w-full flex items-center gap-3 p-2 bg-white rounded-lg hover:bg-blue-100 transition-colors border border-blue-200"
+                                        >
+                                            <img
+                                                src={`${API_BASE}${alt.avatarUrl}`}
+                                                alt={`${alt.username} avatar`}
+                                                className="w-10 h-10 rounded-full"
+                                            />
+                                            <span className="text-sm font-medium text-blue-900">@{alt.username}</span>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
