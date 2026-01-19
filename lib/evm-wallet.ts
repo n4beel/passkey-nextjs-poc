@@ -1,11 +1,11 @@
-import { toWebAuthnKey, WebAuthnMode } from "@zerodev/passkey-validator"
 import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/passkey-validator"
 import { createKernelAccount } from "@zerodev/sdk"
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants"
 import { createPublicClient, http } from "viem"
 import { sepolia } from "viem/chains"
+import type { WebAuthnKey } from "@zerodev/webauthn-key"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api/v1'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
 
 export interface EVMWalletResult {
     address: string;
@@ -14,20 +14,23 @@ export interface EVMWalletResult {
 }
 
 /**
- * Creates an EVM smart wallet using ZeroDev + Passkey
- * Uses our backend as the passkey server (no external ZeroDev infrastructure needed)
+ * Creates an EVM smart wallet using ZeroDev + existing Passkey
+ * Uses decoded public key coordinates from our backend (no toWebAuthnKey() call needed)
  * 
- * @param mode - 'register' for new passkeys, 'login' for existing ones
- * @param passkeyName - Name for the passkey (only used in registration)
+ * @param publicKey - Public key object with x, y coordinates from login response
+ * @param credentialId - Credential ID from login response
  * @returns Smart wallet address (0x...)
  */
 export async function createEVMWallet(
-    mode: 'register' | 'login',
-    passkeyName?: string
+    publicKey: { x: string; y: string; credentialId: string },
 ): Promise<EVMWalletResult> {
 
     // 1. Fetch chain configuration from backend
-    const chainRes = await fetch(`${API_BASE_URL}/chains`)
+    const chainRes = await fetch(`${API_BASE_URL}/chains`, {
+        headers: {
+            'ngrok-skip-browser-warning': 'true',
+        }
+    })
     if (!chainRes.ok) {
         throw new Error(`Failed to fetch chain configs: ${chainRes.statusText}`)
     }
@@ -45,12 +48,15 @@ export async function createEVMWallet(
         chain: sepolia, // TODO: Make dynamic based on chainId
     })
 
-    // 3. Use our backend as the passkey server
-    const webAuthnKey = await toWebAuthnKey({
-        passkeyName: passkeyName || "HandlePay Wallet",
-        passkeyServerUrl: `${API_BASE_URL}/auth/passkey`,
-        mode: mode === 'register' ? WebAuthnMode.Register : WebAuthnMode.Login,
-    })
+    // 3. Manually construct WebAuthnKey from decoded coordinates
+    // Skip toWebAuthnKey() since we already have the key from our backend
+    const webAuthnKey: WebAuthnKey = {
+        pubX: BigInt(publicKey.x),
+        pubY: BigInt(publicKey.y),
+        authenticatorId: publicKey.credentialId,
+        authenticatorIdHash: (`0x` + Buffer.from(publicKey.credentialId).toString('hex')) as `0x${string}`,
+        rpID: evmChain.evm.rpId || 'handlepay.io', // Relying Party ID
+    }
 
     // 4. Create passkey validator
     const entryPoint = getEntryPoint("0.7")

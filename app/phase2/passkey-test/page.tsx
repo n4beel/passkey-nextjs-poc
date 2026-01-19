@@ -85,41 +85,83 @@ export default function PasskeyRegistrationPage() {
             setStep('creating_wallets');
 
             try {
-                // Create EVM wallet (ZeroDev)
+                // Create EVM wallet (ZeroDev) using decoded public key
                 console.log('Creating EVM wallet...');
-                const evmWalletResult = await createEVMWallet('register', result.user.username);
-                setEvmWallet(evmWalletResult.address);
-                console.log('EVM wallet created:', evmWalletResult.address);
 
-                // For SVM, we'll use Lazorkit in a future update
-                // For now, use a placeholder
-                const svmWalletAddress = 'SVM_PLACEHOLDER';
-                setSvmWallet(svmWalletAddress);
-
-                // Step 5: Store wallet addresses in backend
-                console.log('Storing wallets...');
-                const storeRes = await fetch(`${API_BASE}/onboarding/wallets`, {
+                // For registration, we need to login first to get the decoded public key
+                // So let's login now to get it
+                const loginOptionsRes = await fetch(`${API_BASE}/auth/passkey/login/options`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${result.accessToken}`,
+                        'ngrok-skip-browser-warning': 'true',
+                    },
+                    body: JSON.stringify({ username: result.user.username }),
+                });
+
+                if (!loginOptionsRes.ok) {
+                    throw new Error('Failed to get login options');
+                }
+
+                const loginOptions = await loginOptionsRes.json();
+                const loginResp = await startAuthentication(loginOptions);
+
+                const loginVerifyRes = await fetch(`${API_BASE}/auth/passkey/login/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
                         'ngrok-skip-browser-warning': 'true',
                     },
                     body: JSON.stringify({
-                        evmAddress: evmWalletResult.address,
-                        svmAddress: svmWalletAddress,
-                        chainConfigs: [
-                            { type: 'evm', chainId: evmWalletResult.chainId },
-                            { type: 'svm', network: 'devnet' }
-                        ]
+                        username: result.user.username,
+                        credential: loginResp,
                     }),
                 });
 
-                if (!storeRes.ok) {
-                    console.error('Failed to store wallets');
+                if (!loginVerifyRes.ok) {
+                    throw new Error('Failed to verify login');
                 }
 
-                console.log('Wallets stored successfully!');
+                const loginResult = await loginVerifyRes.json();
+
+                // Now we have the decoded public key!
+                if (loginResult.publicKey && 'x' in loginResult.publicKey && 'y' in loginResult.publicKey) {
+                    const evmWalletResult = await createEVMWallet(loginResult.publicKey);
+                    setEvmWallet(evmWalletResult.address);
+                    console.log('EVM wallet created:', evmWalletResult.address);
+
+                    // For SVM, we'll use Lazorkit in a future update
+                    const svmWalletAddress = 'SVM_PLACEHOLDER';
+                    setSvmWallet(svmWalletAddress);
+
+                    // Step 5: Store wallet addresses in backend
+                    console.log('Storing wallets...');
+                    const storeRes = await fetch(`${API_BASE}/onboarding/wallets`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${result.accessToken}`,
+                            'ngrok-skip-browser-warning': 'true',
+                        },
+                        body: JSON.stringify({
+                            evmAddress: evmWalletResult.address,
+                            svmAddress: svmWalletAddress,
+                            chainConfigs: [
+                                { type: 'evm', chainId: evmWalletResult.chainId },
+                                { type: 'svm', network: 'devnet' }
+                            ]
+                        }),
+                    });
+
+                    if (!storeRes.ok) {
+                        console.error('Failed to store wallets');
+                    }
+
+                    console.log('Wallets stored successfully!');
+                } else {
+                    throw new Error('Public key not properly decoded');
+                }
+
                 setStep('success');
             } catch (walletErr: any) {
                 console.error('Wallet creation error:', walletErr);
