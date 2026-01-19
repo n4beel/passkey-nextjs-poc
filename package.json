@@ -9,16 +9,29 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
     "@lazorkit/wallet": "^2.0.1",
     "@simplewebauthn/browser": "^13.2.2",
+    "@solana-program/compute-budget": "^0.11.0",
+    "@solana-program/system": "^0.10.0",
+    "@solana-program/token": "^0.9.0",
+    "@solana/kit": "^5.4.0",
+    "@solana/kora": "^0.1.1",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/web3.js": "^1.98.4",
+    "@wallet-standard/wallet": "^1.1.0",
     "@zerodev/passkey-validator": "^5.6.0",
     "@zerodev/sdk": "^5.5.7",
     "@zerodev/webauthn-key": "^5.5.0",
+    "bs58": "^6.0.0",
+    "eventemitter3": "^5.0.1",
+    "js-sha256": "^0.11.1",
     "next": "16.1.2",
     "permissionless": "^0.3.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "viem": "^2.44.4"
+    "viem": "^2.44.4",
+    "zustand": "^5.0.10"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

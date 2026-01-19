@@ -1,7 +1,7 @@
 import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/passkey-validator"
 import { createKernelAccount } from "@zerodev/sdk"
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants"
-import { createPublicClient, http } from "viem"
+import { createPublicClient, http, keccak256, toHex } from "viem"
 import { sepolia } from "viem/chains"
 import type { WebAuthnKey } from "@zerodev/webauthn-key"
 
@@ -48,13 +48,17 @@ export async function createEVMWallet(
         chain: sepolia, // TODO: Make dynamic based on chainId
     })
 
+
+    // ... existing code ...
+
     // 3. Manually construct WebAuthnKey from decoded coordinates
     // Skip toWebAuthnKey() since we already have the key from our backend
     const webAuthnKey: WebAuthnKey = {
         pubX: BigInt(publicKey.x),
         pubY: BigInt(publicKey.y),
         authenticatorId: publicKey.credentialId,
-        authenticatorIdHash: (`0x` + Buffer.from(publicKey.credentialId).toString('hex')) as `0x${string}`,
+        // Must be a bytes32 hash of the credential ID
+        authenticatorIdHash: keccak256(toHex(publicKey.credentialId)),
         rpID: evmChain.evm.rpId || 'handlepay.io', // Relying Party ID
     }
 

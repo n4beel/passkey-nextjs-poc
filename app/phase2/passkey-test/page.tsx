@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
-import { createEVMWallet } from '@/lib/evm-wallet';
+
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
@@ -81,93 +81,17 @@ export default function PasskeyRegistrationPage() {
             setUsername(result.user.username);
             setUserId(result.user.id);
 
-            // Step 4: Create wallets
-            setStep('creating_wallets');
-
-            try {
-                // Create EVM wallet (ZeroDev) using decoded public key
-                console.log('Creating EVM wallet...');
-
-                // For registration, we need to login first to get the decoded public key
-                // So let's login now to get it
-                const loginOptionsRes = await fetch(`${API_BASE}/auth/passkey/login/options`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'ngrok-skip-browser-warning': 'true',
-                    },
-                    body: JSON.stringify({ username: result.user.username }),
-                });
-
-                if (!loginOptionsRes.ok) {
-                    throw new Error('Failed to get login options');
-                }
-
-                const loginOptions = await loginOptionsRes.json();
-                const loginResp = await startAuthentication(loginOptions);
-
-                const loginVerifyRes = await fetch(`${API_BASE}/auth/passkey/login/verify`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'ngrok-skip-browser-warning': 'true',
-                    },
-                    body: JSON.stringify({
-                        username: result.user.username,
-                        credential: loginResp,
-                    }),
-                });
-
-                if (!loginVerifyRes.ok) {
-                    throw new Error('Failed to verify login');
-                }
-
-                const loginResult = await loginVerifyRes.json();
-
-                // Now we have the decoded public key!
-                if (loginResult.publicKey && 'x' in loginResult.publicKey && 'y' in loginResult.publicKey) {
-                    const evmWalletResult = await createEVMWallet(loginResult.publicKey);
-                    setEvmWallet(evmWalletResult.address);
-                    console.log('EVM wallet created:', evmWalletResult.address);
-
-                    // For SVM, we'll use Lazorkit in a future update
-                    const svmWalletAddress = 'SVM_PLACEHOLDER';
-                    setSvmWallet(svmWalletAddress);
-
-                    // Step 5: Store wallet addresses in backend
-                    console.log('Storing wallets...');
-                    const storeRes = await fetch(`${API_BASE}/onboarding/wallets`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${result.accessToken}`,
-                            'ngrok-skip-browser-warning': 'true',
-                        },
-                        body: JSON.stringify({
-                            evmAddress: evmWalletResult.address,
-                            svmAddress: svmWalletAddress,
-                            chainConfigs: [
-                                { type: 'evm', chainId: evmWalletResult.chainId },
-                                { type: 'svm', network: 'devnet' }
-                            ]
-                        }),
-                    });
-
-                    if (!storeRes.ok) {
-                        console.error('Failed to store wallets');
-                    }
-
-                    console.log('Wallets stored successfully!');
-                } else {
-                    throw new Error('Public key not properly decoded');
-                }
-
-                setStep('success');
-            } catch (walletErr: any) {
-                console.error('Wallet creation error:', walletErr);
-                setError(`Passkey created but wallet generation failed: ${walletErr.message}`);
-                setStep('success'); // Still show success for passkey
+            // Step 4: Display Backend-Created Wallets
+            if (result.wallet) {
+                if (result.wallet.evm) setEvmWallet(result.wallet.evm.address);
+                if (result.wallet.svm) setSvmWallet(result.wallet.svm.address);
+                console.log('Wallets received from backend:', result.wallet);
+            } else {
+                console.warn('No wallet data received from backend registration.');
             }
+
+            setStep('success');
+
         } catch (err: any) {
             console.error('Registration error:', err);
             setError(err.message || 'An error occurred during registration');
@@ -232,6 +156,16 @@ export default function PasskeyRegistrationPage() {
             setAccessToken(result.accessToken);
             setUsername(result.user.username);
             setUserId(result.user.id);
+
+            // Step 4: Display Backend-Retrieved Wallets
+            if (result.wallet) {
+                if (result.wallet.evm) setEvmWallet(result.wallet.evm.address);
+                if (result.wallet.svm) setSvmWallet(result.wallet.svm.address);
+                console.log('Wallets received from backend:', result.wallet);
+            } else {
+                console.warn('No wallet data received from backend login.');
+            }
+
             setStep('success');
         } catch (err: any) {
             console.error('Login error:', err);
