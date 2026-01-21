@@ -91,18 +91,18 @@ export default function Home() {
         </div>
 
         <div className="mt-6 border-t pt-6">
-          <h3 className="font-semibold text-slate-900 mb-3">Phase 3 - Development Testing 🔧</h3>
+          <h3 className="font-semibold text-slate-900 mb-3">Phase 3 - & Beyond 🚀</h3>
           <Link
-            href="/phase3/wallet-test"
-            className="block p-4 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] group mb-4"
+            href="/dashboard"
+            className="block p-4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] group mb-4"
           >
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-white mb-1">
-                  💰 Wallet Test (Dev Mode)
+                  📊 User Dashboard
                 </h2>
-                <p className="text-green-100 text-sm">
-                  Test EVM wallet creation with manual public key input
+                <p className="text-emerald-100 text-sm">
+                  View wallet balances and portfolio (Requires Login)
                 </p>
               </div>
               <svg
@@ -118,6 +118,23 @@ export default function Home() {
                   d="M13 7l5 5m0 0l-5 5m5-5H6"
                 />
               </svg>
+            </div>
+          </Link>
+
+          <Link
+            href="/phase3/wallet-test"
+            className="block p-4 bg-gradient-to-r from-slate-500 to-slate-600 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] group mb-4"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white mb-1">
+                  Wallet Test (Dev Mode)
+                </h2>
+                <p className="text-slate-100 text-sm">
+                  Legacy: Test EVM wallet creation manually
+                </p>
+              </div>
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </div>
           </Link>
         </div>

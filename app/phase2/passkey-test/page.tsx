@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
 export default function PasskeyRegistrationPage() {
+    const router = useRouter();
     const [step, setStep] = useState<'input' | 'registering' | 'creating_wallets' | 'success'>('input');
     const [reservationToken, setReservationToken] = useState('');
     const [username, setUsername] = useState('');
@@ -91,6 +93,11 @@ export default function PasskeyRegistrationPage() {
             }
 
             setStep('success');
+            localStorage.setItem('accessToken', result.accessToken);
+            localStorage.setItem('username', result.user.username);
+            setTimeout(() => {
+                router.push('/dashboard');
+            }, 1500);
 
         } catch (err: any) {
             console.error('Registration error:', err);
@@ -167,6 +174,11 @@ export default function PasskeyRegistrationPage() {
             }
 
             setStep('success');
+            localStorage.setItem('accessToken', result.accessToken);
+            localStorage.setItem('username', result.user.username);
+            setTimeout(() => {
+                router.push('/dashboard');
+            }, 1000);
         } catch (err: any) {
             console.error('Login error:', err);
             setError(err.message || 'An error occurred during login');
@@ -288,6 +300,8 @@ export default function PasskeyRegistrationPage() {
                                     setEvmWallet('');
                                     setSvmWallet('');
                                     setError('');
+                                    localStorage.removeItem('accessToken');
+                                    localStorage.removeItem('username');
                                 }}
                                 className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-semibold transition-all"
                             >
