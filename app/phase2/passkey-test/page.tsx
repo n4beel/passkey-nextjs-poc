@@ -109,8 +109,8 @@ export default function PasskeyRegistrationPage() {
     };
 
     // Login flow
-    const handleLogin = async () => {
-        if (!username) {
+    const handleLogin = async (useUsername: boolean = true) => {
+        if (useUsername && !username) {
             setError('Please enter your username');
             return;
         }
@@ -119,6 +119,8 @@ export default function PasskeyRegistrationPage() {
         setError('');
 
         try {
+            const payload = useUsername ? { username } : {};
+
             // Step 1: Get login options
             const optionsRes = await fetch(`${API_BASE}/auth/passkey/login/options`, {
                 method: 'POST',
@@ -126,7 +128,7 @@ export default function PasskeyRegistrationPage() {
                     'Content-Type': 'application/json',
                     'ngrok-skip-browser-warning': 'true',
                 },
-                body: JSON.stringify({ username }),
+                body: JSON.stringify(payload),
             });
 
             if (!optionsRes.ok) {
@@ -142,16 +144,17 @@ export default function PasskeyRegistrationPage() {
             console.log('Assertion response:', asseResp);
 
             // Step 3: Send credential to backend
+            const verifyPayload = useUsername
+                ? { username, credential: asseResp }
+                : { credential: asseResp };
+
             const verifyRes = await fetch(`${API_BASE}/auth/passkey/login/verify`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'ngrok-skip-browser-warning': 'true',
                 },
-                body: JSON.stringify({
-                    username,
-                    credential: asseResp,
-                }),
+                body: JSON.stringify(verifyPayload),
             });
 
             if (!verifyRes.ok) {
@@ -234,11 +237,25 @@ export default function PasskeyRegistrationPage() {
                                     className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
                                 <button
-                                    onClick={handleLogin}
+                                    onClick={() => handleLogin(true)}
                                     disabled={loading || !username}
                                     className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {loading ? 'Logging in...' : '👤 Login with Passkey'}
+                                    {loading ? 'Logging in...' : '👤 Login with Username'}
+                                </button>
+
+                                <div className="mt-4 flex items-center justify-center">
+                                    <div className="border-t border-white/20 w-full"></div>
+                                    <span className="px-3 text-gray-400 text-sm">OR</span>
+                                    <div className="border-t border-white/20 w-full"></div>
+                                </div>
+
+                                <button
+                                    onClick={() => handleLogin(false)}
+                                    disabled={loading}
+                                    className="w-full mt-4 px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/30 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    🔑 Sign in with Passkey
                                 </button>
                             </div>
 

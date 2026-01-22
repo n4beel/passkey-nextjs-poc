@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import TransferModal from './components/TransferModal';
 
 interface Balance {
     symbol: string;
@@ -30,6 +31,9 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [username, setUsername] = useState<string | null>(null);
+
+    const [selectedToken, setSelectedToken] = useState<any>(null);
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
 
     useEffect(() => {
         const token = localStorage.getItem('accessToken');
@@ -75,6 +79,11 @@ export default function DashboardPage() {
         router.push('/');
     };
 
+    const openTransferModal = (asset: Balance, chain: ChainPortfolio) => {
+        setSelectedToken({ ...asset, chainId: chain.chainId, type: chain.type });
+        setIsTransferModalOpen(true);
+    };
+
     if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
     return (
@@ -111,7 +120,7 @@ export default function DashboardPage() {
 
                 {portfolio ? (
                     <div className="space-y-6">
-                        {/* Total Balance Card (Placeholder for now) */}
+                        {/* Total Balance Card */}
                         <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-8 text-white shadow-lg">
                             <p className="text-emerald-100 font-medium mb-1">Total Balance</p>
                             <h2 className="text-4xl font-bold">${portfolio.totalUsd}</h2>
@@ -133,8 +142,6 @@ export default function DashboardPage() {
                                         <button
                                             onClick={() => {
                                                 navigator.clipboard.writeText(chain.address);
-                                                // Simple feedback mechanism could be added here, but for now just copy
-                                                // Ideally we'd have a small toast or tooltip
                                                 const btn = document.getElementById(`copy-btn-${idx}`);
                                                 if (btn) {
                                                     const originalHTML = btn.innerHTML;
@@ -163,9 +170,27 @@ export default function DashboardPage() {
                                                     <p className="text-xs text-slate-500">{asset.symbol}</p>
                                                 </div>
                                             </div>
-                                            <div className="text-right">
-                                                <p className="font-bold text-slate-900">{parseFloat(asset.balance).toFixed(4)}</p>
-                                                <p className="text-xs text-slate-500">Balance</p>
+                                            <div className="flex items-center gap-6">
+                                                <div className="text-right">
+                                                    <p className="font-bold text-slate-900">{parseFloat(asset.balance).toFixed(4)}</p>
+                                                    <p className="text-xs text-slate-500">Balance</p>
+                                                </div>
+                                                {chain.type === 'evm' ? (
+                                                    <button
+                                                        onClick={() => openTransferModal(asset, chain)}
+                                                        className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition"
+                                                    >
+                                                        Transfer
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        disabled
+                                                        className="px-4 py-2 bg-slate-100 text-slate-400 rounded-lg text-sm font-semibold cursor-not-allowed"
+                                                        title="Coming soon for SVM"
+                                                    >
+                                                        Transfer
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -180,6 +205,13 @@ export default function DashboardPage() {
                     <div className="text-center p-10">No portfolio data found.</div>
                 )}
             </div>
+
+            <TransferModal
+                isOpen={isTransferModalOpen}
+                onClose={() => setIsTransferModalOpen(false)}
+                token={selectedToken}
+                accessToken={localStorage.getItem('accessToken') || ''}
+            />
         </div>
     );
 }
