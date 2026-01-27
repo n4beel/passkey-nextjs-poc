@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import TransferModal from './components/TransferModal';
+import TransactionHistoryList from './components/TransactionHistoryList';
 
 interface Balance {
     symbol: string;
@@ -31,9 +32,11 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [username, setUsername] = useState<string | null>(null);
+    const [accessToken, setAccessToken] = useState<string | null>(null);
 
     const [selectedToken, setSelectedToken] = useState<any>(null);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<'tokens' | 'history'>('tokens');
 
     useEffect(() => {
         const token = localStorage.getItem('accessToken');
@@ -44,6 +47,7 @@ export default function DashboardPage() {
             router.push('/');
             return;
         }
+        setAccessToken(token);
 
         fetchBalances(token);
     }, []);
@@ -126,73 +130,102 @@ export default function DashboardPage() {
                             <h2 className="text-4xl font-bold">${portfolio.totalUsd}</h2>
                         </div>
 
-                        {/* Chains */}
-                        {portfolio.chains.map((chain, idx) => (
-                            <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                                <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
-                                    <div className="flex items-center gap-3">
-                                        <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${chain.type === 'evm' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                                            {chain.type}
-                                        </span>
-                                        <span className="font-bold text-slate-700">{chain.network || `Chain ${chain.chainId}`}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm text-slate-500 font-mono">
-                                        <span className="opacity-50 text-xs">Address:</span>
-                                        {chain.address.slice(0, 6)}...{chain.address.slice(-4)}
-                                        <button
-                                            onClick={() => {
-                                                navigator.clipboard.writeText(chain.address);
-                                                const btn = document.getElementById(`copy-btn-${idx}`);
-                                                if (btn) {
-                                                    const originalHTML = btn.innerHTML;
-                                                    btn.innerHTML = `<svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
-                                                    setTimeout(() => btn.innerHTML = originalHTML, 2000);
-                                                }
-                                            }}
-                                            id={`copy-btn-${idx}`}
-                                            className="p-1 hover:bg-slate-100 rounded transition text-slate-400 hover:text-slate-600"
-                                            title="Copy Address"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                                        </button>
-                                    </div>
-                                </div>
+                        {/* Tabs */}
+                        <div className="flex border-b border-slate-200 mb-6">
+                            <button
+                                onClick={() => setActiveTab('tokens')}
+                                className={`px-6 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'tokens'
+                                    ? 'border-emerald-600 text-emerald-600'
+                                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                                    }`}
+                            >
+                                Tokens
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('history')}
+                                className={`px-6 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'history'
+                                    ? 'border-emerald-600 text-emerald-600'
+                                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                                    }`}
+                            >
+                                History
+                            </button>
+                        </div>
 
-                                <div className="divide-y divide-slate-100">
-                                    {chain.assets.map((asset, i) => (
-                                        <div key={i} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition">
-                                            <div className="flex items-center gap-4">
-                                                <div className="h-10 w-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500">
-                                                    {asset.symbol[0]}
-                                                </div>
-                                                <div>
-                                                    <p className="font-bold text-slate-900">{asset.name}</p>
-                                                    <p className="text-xs text-slate-500">{asset.symbol}</p>
-                                                </div>
+                        {/* Content */}
+                        {activeTab === 'tokens' ? (
+                            <div className="space-y-6">
+                                {/* Chains */}
+                                {portfolio.chains.map((chain, idx) => (
+                                    <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                        <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+                                            <div className="flex items-center gap-3">
+                                                <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${chain.type === 'evm' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                                                    {chain.type}
+                                                </span>
+                                                <span className="font-bold text-slate-700">{chain.network || `Chain ${chain.chainId}`}</span>
                                             </div>
-                                            <div className="flex items-center gap-6">
-                                                <div className="text-right">
-                                                    <p className="font-bold text-slate-900">{parseFloat(asset.balance).toFixed(4)}</p>
-                                                    <p className="text-xs text-slate-500">Balance</p>
-                                                </div>
+                                            <div className="flex items-center gap-2 text-sm text-slate-500 font-mono">
+                                                <span className="opacity-50 text-xs">Address:</span>
+                                                {chain.address.slice(0, 6)}...{chain.address.slice(-4)}
                                                 <button
-                                                    onClick={() => openTransferModal(asset, chain)}
-                                                    className={`px-4 py-2 text-white rounded-lg text-sm font-semibold transition ${chain.type === 'evm'
-                                                            ? 'bg-slate-900 hover:bg-slate-800'
-                                                            : 'bg-purple-600 hover:bg-purple-700'
-                                                        }`}
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(chain.address);
+                                                        const btn = document.getElementById(`copy-btn-${idx}`);
+                                                        if (btn) {
+                                                            const originalHTML = btn.innerHTML;
+                                                            btn.innerHTML = `<svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+                                                            setTimeout(() => btn.innerHTML = originalHTML, 2000);
+                                                        }
+                                                    }}
+                                                    id={`copy-btn-${idx}`}
+                                                    className="p-1 hover:bg-slate-100 rounded transition text-slate-400 hover:text-slate-600"
+                                                    title="Copy Address"
                                                 >
-                                                    Transfer
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                                                 </button>
                                             </div>
                                         </div>
-                                    ))}
-                                    {chain.assets.length === 0 && (
-                                        <div className="p-6 text-center text-slate-500 italic">No assets found</div>
-                                    )}
-                                </div>
+
+                                        <div className="divide-y divide-slate-100">
+                                            {chain.assets.map((asset, i) => (
+                                                <div key={i} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="h-10 w-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500">
+                                                            {asset.symbol[0]}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-bold text-slate-900">{asset.name}</p>
+                                                            <p className="text-xs text-slate-500">{asset.symbol}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-6">
+                                                        <div className="text-right">
+                                                            <p className="font-bold text-slate-900">{parseFloat(asset.balance).toFixed(4)}</p>
+                                                            <p className="text-xs text-slate-500">Balance</p>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => openTransferModal(asset, chain)}
+                                                            className={`px-4 py-2 text-white rounded-lg text-sm font-semibold transition ${chain.type === 'evm'
+                                                                ? 'bg-slate-900 hover:bg-slate-800'
+                                                                : 'bg-purple-600 hover:bg-purple-700'
+                                                                }`}
+                                                        >
+                                                            Transfer
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {chain.assets.length === 0 && (
+                                                <div className="p-6 text-center text-slate-500 italic">No assets found</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
+                        ) : (
+                            accessToken && <TransactionHistoryList chains={portfolio.chains} accessToken={accessToken} />
+                        )}
                     </div>
                 ) : (
                     <div className="text-center p-10">No portfolio data found.</div>
