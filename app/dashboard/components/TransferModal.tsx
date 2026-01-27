@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { createPublicClient, http, parseAbi, encodeFunctionData, parseUnits, formatUnits, keccak256, toHex } from 'viem';
+import { createPublicClient, http, parseAbi, encodeFunctionData, parseUnits, formatUnits, keccak256, toHex, Address } from 'viem';
 import { sepolia } from 'viem/chains';
 import { createKernelAccount, createKernelAccountClient, createZeroDevPaymasterClient } from "@zerodev/sdk";
 import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/passkey-validator";
 import { toWebAuthnKey, WebAuthnMode } from "@zerodev/webauthn-key";
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
+import { useLazorkitCustomSigner } from '@/hooks/useLazorkitCustomSigner';
+import { getConnection, buildUsdcTransferInstructions, createTransferSuccessMessage, validateRecipientAddress, validateTransferAmount, getUsdcBalance } from '@/lib/solana-utils';
+import { PublicKey } from '@solana/web3.js';
 
 interface TransferModalProps {
     isOpen: boolean;
@@ -16,6 +19,7 @@ interface TransferModalProps {
         decimals: number;
         address: string;
         chainId?: number;
+        type?: string;
     } | null;
     accessToken: string;
 }
@@ -29,6 +33,12 @@ export default function TransferModal({ isOpen, onClose, token, accessToken }: T
     const [error, setError] = useState('');
     const [successHash, setSuccessHash] = useState('');
     const [status, setStatus] = useState('');
+
+    // LazorKit Custom Signer Hook (Unified Identity)
+    const { signAndSendTransaction, isSigning } = useLazorkitCustomSigner();
+
+    // Helper to determine if token is SVM based
+    const isSVM = token?.type === 'svm' || token?.chainId === 103 || token?.chainId === 900;
 
     useEffect(() => {
         if (!isOpen) {
@@ -59,6 +69,96 @@ export default function TransferModal({ isOpen, onClose, token, accessToken }: T
         }
 
         try {
+            if (isSVM) {
+                // --- SVM / LazorKit Custom Flow ---
+                setStatus('Initializing SVM Wallet...');
+
+                setStatus('Initializing Transfer...');
+                const connection = getConnection();
+
+                // Validate inputs
+                const recipientValidation = validateRecipientAddress(recipient);
+                if (!recipientValidation.valid) throw new Error(recipientValidation.error);
+
+                const amountNum = parseFloat(amount);
+                if (isNaN(amountNum) || amountNum <= 0) throw new Error("Invalid amount");
+
+                // Fetch Wallet Config to get Credential ID and Public Key
+                const configRes = await fetch(`${API_BASE}/wallet/config`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'ngrok-skip-browser-warning': 'true'
+                    }
+                });
+
+                if (!configRes.ok) throw new Error('Failed to fetch wallet config');
+                const config = await configRes.json();
+
+                // Fetch derived address from localStorage
+                // We previously fetched from /api/v1/wallet but that endpoint does not exist
+                const walletStr = localStorage.getItem('wallet');
+                let senderAddress = '';
+
+
+                if (walletStr) {
+                    try {
+                        const walletData = JSON.parse(walletStr);
+                        if (walletData.svm && walletData.svm.address) {
+                            senderAddress = walletData.svm.address;
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse wallet from localStorage', e);
+                    }
+                }
+
+                if (!senderAddress) {
+                    throw new Error('SVM Wallet address not found. Please try logging in again.');
+                }
+
+                const senderPubkey = new PublicKey(senderAddress);
+
+                // Debug Balance
+                try {
+                    const bal = await getUsdcBalance(connection, senderPubkey);
+                    console.log(`[TransferModal] Sender: ${senderAddress}, USDC Balance: ${bal}`);
+                    if (bal < amountNum) {
+                        console.warn(`[TransferModal] WARNING: Insufficient Balance. Need ${amountNum}, Have ${bal}`);
+                    }
+                } catch (e) {
+                    console.warn("[TransferModal] Failed to fetch balance for debug:", e);
+                }
+
+                setStatus('Building Instructions...');
+                const instructions = await buildUsdcTransferInstructions(
+                    connection,
+                    senderPubkey,
+                    recipientValidation.address!,
+                    amountNum
+                );
+
+                setStatus('Please sign with Passkey...');
+
+                // Use Custom Signer to sign and send transaction via Paymaster
+                // Pass credential details for the assertion
+                const signature = await signAndSendTransaction(instructions, {
+                    credentialId: config.credentialId,
+                    passkeyPublicKey: {
+                        x: config.pubX,
+                        y: config.pubY
+                    }
+                });
+
+                setStatus('Transaction Submitted! Confirming...');
+                console.log('SVM Tx Signature:', signature);
+
+                await connection.confirmTransaction(signature, 'confirmed');
+
+                setSuccessHash(signature);
+                setStatus('Success!');
+                return; // Exit function after successful SVM transfer
+            }
+
+            // --- EVM / ZeroDev Flow ---
             // 1. Fetch Wallet Config from Backend
             const configRes = await fetch(`${API_BASE}/wallet/config`, {
                 headers: {
@@ -84,9 +184,7 @@ export default function TransferModal({ isOpen, onClose, token, accessToken }: T
             setStatus('Initializing Wallet...');
             const entryPoint = getEntryPoint("0.7");
 
-            // Manually construct WebAuthnKey to avoid the first "login" prompt
-            // We already have the public key in config, so we can skip fetching it
-
+            // Manually construct WebAuthnKey using config data
             // Helper to convert base64url to bytes
             const b64ToBytes = (base64: string): Uint8Array => {
                 const binString = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
@@ -97,16 +195,12 @@ export default function TransferModal({ isOpen, onClose, token, accessToken }: T
             const authenticatorIdHash = keccak256(credentialIdBytes);
 
             const webAuthnKey = {
-                pubX: BigInt(config.pubX), // Backend sends 0x-prefixed hex string
-                pubY: BigInt(config.pubY), // Backend sends 0x-prefixed hex string
+                pubX: BigInt(config.pubX),
+                pubY: BigInt(config.pubY),
                 authenticatorId: config.credentialId,
                 authenticatorIdHash: authenticatorIdHash,
                 rpID: window.location.hostname
             };
-
-            console.log("🚀 ~ handleTransfer ~ constructed webAuthnKey:", webAuthnKey)
-            debugger
-
 
             const passkeyValidator = await toPasskeyValidator(publicClient, {
                 webAuthnKey,
@@ -174,7 +268,6 @@ export default function TransferModal({ isOpen, onClose, token, accessToken }: T
             setStatus('Transaction Submitted! Waiting for receipt...');
             console.log('Tx Hash:', txHash);
 
-            // sendTransaction returns the transaction hash once the UserOp is included
             setSuccessHash(txHash);
             setStatus('Success!');
 
@@ -237,10 +330,10 @@ export default function TransferModal({ isOpen, onClose, token, accessToken }: T
 
                         <button
                             onClick={handleTransfer}
-                            disabled={loading}
+                            disabled={loading || (isSigning && isSVM)}
                             className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-semibold py-3 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                         >
-                            {loading ? 'Processing...' : 'Send Now'}
+                            {loading || (isSigning && isSVM) ? 'Processing...' : 'Send Now'}
                         </button>
                     </div>
                 ) : (
@@ -250,15 +343,31 @@ export default function TransferModal({ isOpen, onClose, token, accessToken }: T
                         </div>
                         <h4 className="text-xl font-bold text-white mb-2">Transfer Successful!</h4>
                         <p className="text-gray-400 text-sm mb-6 max-w-xs mx-auto break-all">
-                            Tx Hash: <br />
-                            <a
-                                href={`https://sepolia.etherscan.io/tx/${successHash}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-purple-400 hover:text-purple-300 hover:underline"
-                            >
-                                {successHash}
-                            </a>
+                            {isSVM ? (
+                                <>
+                                    Tx Signature: <br />
+                                    <a
+                                        href={`https://explorer.solana.com/tx/${successHash}?cluster=devnet`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-purple-400 hover:text-purple-300 hover:underline"
+                                    >
+                                        {successHash}
+                                    </a>
+                                </>
+                            ) : (
+                                <>
+                                    Tx Hash: <br />
+                                    <a
+                                        href={`https://sepolia.etherscan.io/tx/${successHash}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-purple-400 hover:text-purple-300 hover:underline"
+                                    >
+                                        {successHash}
+                                    </a>
+                                </>
+                            )}
                         </p>
                         <button
                             onClick={onClose}

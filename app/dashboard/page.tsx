@@ -175,22 +175,15 @@ export default function DashboardPage() {
                                                     <p className="font-bold text-slate-900">{parseFloat(asset.balance).toFixed(4)}</p>
                                                     <p className="text-xs text-slate-500">Balance</p>
                                                 </div>
-                                                {chain.type === 'evm' ? (
-                                                    <button
-                                                        onClick={() => openTransferModal(asset, chain)}
-                                                        className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition"
-                                                    >
-                                                        Transfer
-                                                    </button>
-                                                ) : (
-                                                    <button
-                                                        disabled
-                                                        className="px-4 py-2 bg-slate-100 text-slate-400 rounded-lg text-sm font-semibold cursor-not-allowed"
-                                                        title="Coming soon for SVM"
-                                                    >
-                                                        Transfer
-                                                    </button>
-                                                )}
+                                                <button
+                                                    onClick={() => openTransferModal(asset, chain)}
+                                                    className={`px-4 py-2 text-white rounded-lg text-sm font-semibold transition ${chain.type === 'evm'
+                                                            ? 'bg-slate-900 hover:bg-slate-800'
+                                                            : 'bg-purple-600 hover:bg-purple-700'
+                                                        }`}
+                                                >
+                                                    Transfer
+                                                </button>
                                             </div>
                                         </div>
                                     ))}

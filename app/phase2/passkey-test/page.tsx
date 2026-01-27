@@ -95,6 +95,12 @@ export default function PasskeyRegistrationPage() {
             setStep('success');
             localStorage.setItem('accessToken', result.accessToken);
             localStorage.setItem('username', result.user.username);
+            if (result.wallet) {
+                localStorage.setItem('wallet', JSON.stringify(result.wallet));
+            }
+            if (result.credentialId) {
+                localStorage.setItem('credentialId', result.credentialId);
+            }
             setTimeout(() => {
                 router.push('/dashboard');
             }, 1500);
@@ -179,6 +185,12 @@ export default function PasskeyRegistrationPage() {
             setStep('success');
             localStorage.setItem('accessToken', result.accessToken);
             localStorage.setItem('username', result.user.username);
+            if (result.wallet) {
+                localStorage.setItem('wallet', JSON.stringify(result.wallet));
+            }
+            if (result.credentialId) {
+                localStorage.setItem('credentialId', result.credentialId);
+            }
             setTimeout(() => {
                 router.push('/dashboard');
             }, 1000);

@@ -1,0 +1,13 @@
+diff --git a/node_modules/@lazorkit/wallet/package.json b/node_modules/@lazorkit/wallet/package.json
+index 5c8c5c7..e3b6a5d 100644
+--- a/node_modules/@lazorkit/wallet/package.json
++++ b/node_modules/@lazorkit/wallet/package.json
+@@ -10,6 +10,7 @@
+       "require": "./dist/index.js",
+       "import": "./dist/index.mjs",
+       "types": "./dist/index.d.ts"
+-    }
++    },
++    "./dist/*": "./dist/*"
+   },
+   "files": [
