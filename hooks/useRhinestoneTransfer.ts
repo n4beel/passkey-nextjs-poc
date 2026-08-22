@@ -534,6 +534,9 @@ export function useRhinestoneTransfer() {
         symbol?: string;
         chainId?: number;
         destChainId?: number;
+        // Money only: 'USDT' (default, sent directly) or 'USDC' (same-chain swap on
+        // BSC → the response comes back swap-shaped and is submitted like a swap).
+        outputToken?: 'USDT' | 'USDC';
     }): Promise<TransferResult> => {
         setIsSending(true);
         setError(null);
@@ -549,6 +552,7 @@ export function useRhinestoneTransfer() {
                     ...(params.symbol ? { symbol: params.symbol } : {}),
                     ...(params.chainId ? { chainId: params.chainId } : {}),
                     ...(params.destChainId ? { destChainId: params.destChainId } : {}),
+                    ...(params.outputToken ? { outputToken: params.outputToken } : {}),
                 },
                 headers: { 'ngrok-skip-browser-warning': 'true' },
             });
@@ -577,14 +581,22 @@ export function useRhinestoneTransfer() {
             }));
 
             let intentId: string;
-            if (prepare.sourceAssets?.length && prepare.targetChainId != null) {
-                // CROSS-CHAIN withdraw: bridge the asset to the destination chain and
-                // deliver net-of-fees to the external address there. Same intent shape
-                // as swap — declare the source asset (exact input) so the orchestrator
-                // finds the balance; the dest-chain `calls` do the delivery + fee skim.
+            if (prepare.sourceAssets?.length) {
+                // SOURCE-ASSETS path — used by BOTH the spot cross-chain withdraw
+                // (bridge to another chain) and the money USDT→USDC swap-out (same
+                // chain in and out). Declare the source asset (exact input) so the
+                // orchestrator finds the balance; the target-chain `calls` do the
+                // delivery + fee skim, and `tokenRequests` names what to receive.
+                // Target chain: explicit for cross-chain, else the source/prepare chain.
+                const targetChainId = prepare.targetChainId ?? prepare.chainId;
+                const sourceChainIds = prepare.sourceChainIds ?? [targetChainId];
+                // Same-chain swap (money USDT→USDC): sponsor it so the relayer pays
+                // gas + fills, instead of the account paying gas from the input and
+                // waiting on a solver (which leaves small swaps stuck pending).
+                const sameChain = sourceChainIds.every((id) => id === targetChainId);
                 const txResult = await sendTx(account, {
-                    sourceChains: (prepare.sourceChainIds ?? []).map(getChainById),
-                    targetChain: getChainById(prepare.targetChainId),
+                    sourceChains: sourceChainIds.map(getChainById),
+                    targetChain: getChainById(targetChainId),
                     sourceAssets: prepare.sourceAssets.map((a) => ({
                         chain: getChainById(a.chainId),
                         address: a.address as `0x${string}`,
@@ -595,6 +607,7 @@ export function useRhinestoneTransfer() {
                         address: t.address as `0x${string}`,
                         ...(t.amount ? { amount: BigInt(t.amount) } : {}),
                     })),
+                    ...(sameChain ? { sponsored: true } : {}),
                 } as any);
                 await account.waitForExecution(txResult);
                 intentId = String((txResult as any).id);
