@@ -4,10 +4,28 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { signedFetch } from '@/lib/api/signedFetch';
+import { RecoveryProviders } from '../../recovery-poc/providers';
 
+// Google SSO (Privy) is nested here so the guardian EOA is available during
+// registration and baked into the smart account (social recovery) at signup.
 export default function PasskeyRegistrationPage() {
+    return (
+        <RecoveryProviders>
+            <PasskeyRegistrationInner />
+        </RecoveryProviders>
+    );
+}
+
+function PasskeyRegistrationInner() {
     const router = useRouter();
+    const { ready: privyReady, authenticated, login: privyLogin, user: privyUser } = usePrivy();
+    const { wallets: privyWallets } = useWallets();
+    // The Google-backed embedded EOA = the recovery guardian.
+    const guardianWallet = privyWallets.find((w) => w.walletClientType === 'privy');
+    const guardianAddress = guardianWallet?.address;
+    const guardianEmail = privyUser?.google?.email ?? privyUser?.email?.address ?? privyUser?.id;
     const [step, setStep] = useState<'input' | 'registering' | 'creating_wallets' | 'success'>('input');
     const [reservationToken, setReservationToken] = useState('');
     const [referralCode, setReferralCode] = useState('');
@@ -59,6 +77,9 @@ export default function PasskeyRegistrationPage() {
                 json: {
                     reservationToken,
                     ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
+                    // Present → backend derives recovery-enabled wallets (2.1.0) with
+                    // this Google guardian baked in. Absent → legacy no-recovery wallets.
+                    ...(guardianAddress ? { guardianAddress } : {}),
                     credential: attResp,
                     deviceInfo: {
                         userAgent: navigator.userAgent,
@@ -207,6 +228,32 @@ export default function PasskeyRegistrationPage() {
                                 <p className="text-gray-300 mb-4">
                                     Enter your reservation token from Phase 1 to create a passkey
                                 </p>
+
+                                {/* Recovery guardian (Google SSO) — sets up social recovery at signup */}
+                                <div className="mb-4 p-4 bg-white/5 border border-white/20 rounded-lg">
+                                    {!authenticated ? (
+                                        <>
+                                            <p className="text-sm text-gray-300 mb-3">
+                                                Set a <strong className="text-white">recovery guardian</strong> so a lost passkey can be restored. Sign in with Google — this becomes your guardian.
+                                            </p>
+                                            <button
+                                                onClick={privyLogin}
+                                                disabled={!privyReady}
+                                                className="w-full px-4 py-2.5 bg-white text-gray-800 rounded-lg font-medium hover:bg-gray-100 transition-all disabled:opacity-50"
+                                            >
+                                                {privyReady ? 'Sign in with Google (set recovery guardian)' : 'Loading…'}
+                                            </button>
+                                            <p className="text-xs text-gray-400 mt-2">Optional — skip to create a wallet without recovery.</p>
+                                        </>
+                                    ) : (
+                                        <p className="text-sm text-green-200">
+                                            ✅ Recovery guardian: <strong>{guardianEmail}</strong>
+                                            <br />
+                                            <span className="text-xs break-all font-mono text-gray-300">{guardianAddress ?? 'creating embedded wallet…'}</span>
+                                        </p>
+                                    )}
+                                </div>
+
                                 <input
                                     type="text"
                                     placeholder="Reservation Token"

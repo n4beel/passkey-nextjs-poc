@@ -12,7 +12,9 @@
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@lazorkit/wallet": "^2.0.1",
+    "@privy-io/react-auth": "^3.35.2",
     "@rhinestone/sdk": "^2.0.0-beta.39",
+    "@rhinestone/sdk-v2": "npm:@rhinestone/sdk@^2.1.0",
     "@simplewebauthn/browser": "^13.2.2",
     "@solana-program/compute-budget": "^0.11.0",
     "@solana-program/system": "^0.10.0",
