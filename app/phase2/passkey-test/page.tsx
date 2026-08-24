@@ -268,12 +268,27 @@ function PasskeyRegistrationInner() {
                                     onChange={(e) => setReferralCode(e.target.value)}
                                     className="w-full mt-3 px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                 />
+                                {/* Guardian must be loaded before the passkey is created, or the
+                                    account is derived WITHOUT recovery (the guardian rides along
+                                    on register/verify). Gate the button until it's ready. */}
+                                {authenticated && !guardianAddress && (
+                                    <div className="mt-3 flex items-center gap-2 text-sm text-amber-300">
+                                        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-amber-300 border-t-transparent" />
+                                        Preparing recovery guardian… (creating embedded wallet)
+                                    </div>
+                                )}
                                 <button
                                     onClick={handleRegister}
-                                    disabled={loading || !reservationToken}
+                                    disabled={loading || !reservationToken || !guardianAddress}
                                     className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {loading ? 'Creating Passkey...' : '🔐 Create Passkey'}
+                                    {loading
+                                        ? 'Creating Passkey...'
+                                        : !authenticated
+                                            ? 'Sign in with Google first'
+                                            : !guardianAddress
+                                                ? 'Waiting for guardian…'
+                                                : '🔐 Create Passkey'}
                                 </button>
                             </div>
 

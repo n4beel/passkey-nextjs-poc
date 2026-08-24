@@ -26,7 +26,10 @@ import {
 } from 'viem/chains';
 import type { Account, Chain, Hex } from 'viem';
 import { RhinestoneSDK } from '@rhinestone/sdk-v2';
-import { recoverPasskeyOwnership } from '@rhinestone/sdk-v2/actions/recovery';
+import {
+  enable,
+  recoverPasskeyOwnership,
+} from '@rhinestone/sdk-v2/actions/recovery';
 
 /**
  * Chains we can rotate on — those with a Pimlico bundler/paymaster (proxied) and
@@ -177,6 +180,55 @@ export async function createRecoverableAccount(
     experimental_sessions: { enabled: true },
     recovery: { guardians: [guardian] },
   } as any);
+}
+
+/**
+ * Account with NO recovery baked in — a passkey owner only. Mirrors an "old" user
+ * created before the guardian was part of derivation. Used to test the
+ * enable-from-settings retrofit path: deploy this, then {@link enableRecovery}
+ * installs the social-recovery module at runtime. NOTE: its address differs from
+ * the recoverable-config address (the address is derived FROM the config), so this
+ * is only for testing the retrofit, not for a wallet already derived-with-recovery.
+ */
+export async function createPlainAccount(
+  ownerPasskey: WebAuthnAccount,
+  salt?: Hex,
+  chain: Chain = RECOVERY_CHAIN,
+) {
+  const account: Record<string, unknown> = { type: 'nexus' };
+  if (salt) account.salt = salt;
+  return sdk(chain).createAccount({
+    account,
+    owners: { type: 'passkey', accounts: [ownerPasskey] },
+    experimental_sessions: { enabled: true },
+    // No `recovery` — nothing baked in; enableRecovery() retrofits it.
+  } as any);
+}
+
+/**
+ * Enable-from-settings: install the social-recovery module on an ALREADY-deployed
+ * account, registering `guardian` as the recovery guardian (threshold 1). Signed
+ * by the account's OWNER passkey (the user turning recovery on), Pimlico-sponsored.
+ * Uses the SDK's `enable()` action — the same social-recovery module the baked-in
+ * path uses, NOT the OwnableValidator.addOwner the backend placeholder returned.
+ */
+export async function enableRecovery(params: {
+  account: any;
+  guardian: Account;
+  chain?: Chain;
+}): Promise<{ status: string; receipt: unknown }> {
+  const chain = params.chain ?? RECOVERY_CHAIN;
+  const res = await params.account.sendUserOperation({
+    chain,
+    calls: [enable([params.guardian], 1)],
+  });
+  const receipt = await params.account.waitForExecution(res);
+  const status = String(
+    (receipt as any)?.success ??
+      (receipt as any)?.status ??
+      JSON.stringify(receipt).slice(0, 120),
+  );
+  return { status, receipt };
 }
 
 export interface RecoverResult {
