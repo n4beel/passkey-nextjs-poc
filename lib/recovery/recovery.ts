@@ -177,8 +177,46 @@ export async function createRecoverableAccount(
   return sdk(chain).createAccount({
     account,
     owners: { type: 'passkey', accounts: [ownerPasskey] },
-    experimental_sessions: { enabled: true },
+    // MUST match the backend's recoverable derivation (recovery.service).
+    // `sessions` is the 2.1.0 key; the old `experimental_sessions` is SILENTLY
+    // IGNORED on 2.1.0, which derives a DIFFERENT (sessionless) address — so this
+    // reconstruction would target the wrong account.
+    sessions: { enabled: true },
     recovery: { guardians: [guardian] },
+  } as any);
+}
+
+/**
+ * Build the recoverable MONEY account for CLIENT money ops — deposit session-enable,
+ * pay, move, withdraw. Same 2.1.0 + guardian derivation the backend uses
+ * (recovery.service) so the derived address matches — keyed by the guardian ADDRESS,
+ * since the passkey signs and the guardian is only baked into the address.
+ *
+ * Uses the SAME minimal SDK config as the working beta.39 money path (orchestrator
+ * endpoint only — the tx carries its own chain, and session-enable signing is
+ * offline), so it's chain-agnostic. A per-chain provider override (like the recovery
+ * flow's `sdk()`) would pin one chain and misread balances for a payment on another
+ * (e.g. Plasma), which surfaces as "no viable route". Use this whenever the money
+ * wallet is recovery-enabled, or the client derives the guardian-less address.
+ */
+export function recoverableMoneyAccount(params: {
+  ownerPasskey: WebAuthnAccount;
+  guardianAddress: string;
+  salt?: Hex;
+}) {
+  const rhinestone = new RhinestoneSDK({
+    apiKey: 'proxy',
+    endpointUrl: rhinestoneEndpoint(),
+  });
+  const account: Record<string, unknown> = { type: 'nexus' };
+  if (params.salt) account.salt = params.salt;
+  return rhinestone.createAccount({
+    account,
+    owners: { type: 'passkey', accounts: [params.ownerPasskey] },
+    sessions: { enabled: true },
+    recovery: {
+      guardians: [{ address: params.guardianAddress as Hex }],
+    },
   } as any);
 }
 
@@ -200,7 +238,9 @@ export async function createPlainAccount(
   return sdk(chain).createAccount({
     account,
     owners: { type: 'passkey', accounts: [ownerPasskey] },
-    experimental_sessions: { enabled: true },
+    // 2.1.0 key (see createRecoverableAccount): `experimental_sessions` is ignored
+    // on 2.1.0, so use `sessions` to actually install the smart-sessions module.
+    sessions: { enabled: true },
     // No `recovery` — nothing baked in; enableRecovery() retrofits it.
   } as any);
 }

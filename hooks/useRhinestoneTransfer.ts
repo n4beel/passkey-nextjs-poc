@@ -14,6 +14,7 @@ import {
 import * as viemChains from 'viem/chains';
 import { plasma, plasmaTestnet, PLASMA_USDT0_ADDRESS } from '@/lib/chains/plasma';
 import { signedFetch } from '@/lib/api/signedFetch';
+import { recoverableMoneyAccount, MONEY_WALLET_SALT } from '@/lib/recovery/recovery';
 
 /** Canonical Permit2 — the spender a Rhinestone intent's source claim pulls through. */
 const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3' as `0x${string}`;
@@ -151,6 +152,19 @@ export function useRhinestoneTransfer() {
             },
             rpId: window.location.hostname,
         });
+
+        // Recovery-enabled MONEY wallet: the backend derived it on SDK 2.1.0 with the
+        // guardian baked into the address, so build the SAME way here — the beta.39
+        // path below (no guardian) derives a different, unfunded address, so a pay /
+        // withdraw intent sources from an empty account → "no viable route". Spot is
+        // left on the beta.39 path for now.
+        if (walletType === 'money' && config.moneyGuardian) {
+            return recoverableMoneyAccount({
+                ownerPasskey: passkeyAccount,
+                guardianAddress: config.moneyGuardian,
+                salt: MONEY_WALLET_SALT,
+            });
+        }
 
         // 4. Create Rhinestone SDK with proxy endpoint (API key stays server-side)
         const rhinestone = new RhinestoneSDK({

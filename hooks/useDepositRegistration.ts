@@ -5,6 +5,7 @@ import { RhinestoneSDK } from '@rhinestone/sdk';
 import { toWebAuthnAccount } from 'viem/account-abstraction';
 import type { Hex } from 'viem';
 import { API_V2_BASE, signedFetch } from '@/lib/api/signedFetch';
+import { recoverableMoneyAccount } from '@/lib/recovery/recovery';
 
 /** Get the Rhinestone SDK endpoint URL — uses our API proxy */
 function getRhinestoneEndpoint(): string {
@@ -106,32 +107,6 @@ export function useDepositRegistration() {
                 rpId: prepare.rpId,
             });
 
-            const rhinestone = new RhinestoneSDK({
-                apiKey: 'proxy',
-                endpointUrl: getRhinestoneEndpoint(),
-            });
-
-            const rhinestoneAccount = await rhinestone.createAccount({
-                account: {
-                    type: 'nexus',
-                    salt: prepare.moneyWalletSalt as Hex,
-                },
-                owners: {
-                    type: 'passkey',
-                    accounts: [passkeyAccount],
-                },
-                experimental_sessions: {
-                    enabled: true,
-                },
-            });
-
-            const derivedAddress = rhinestoneAccount.getAddress();
-            if (derivedAddress.toLowerCase() !== prepare.address.toLowerCase()) {
-                throw new Error(
-                    `Address mismatch after prepare: expected ${prepare.address}, got ${derivedAddress}`,
-                );
-            }
-
             // 3. Sign session grant with passkey (biometric prompt)
             const sessionDetailsForSign = {
                 nonces: prepare.sessionDetails.nonces.map((n) => BigInt(n)),
@@ -142,12 +117,64 @@ export function useDepositRegistration() {
                 data: prepare.sessionDetails.data,
             };
 
-            const signature =
-                await rhinestoneAccount.experimental_signEnableSession(
+            let derivedAddress: string;
+            let signature: string;
+
+            if (config.moneyGuardian) {
+                // Recovery-enabled money wallet: the backend derived it on SDK 2.1.0
+                // with the guardian baked into the address, so rebuild the SAME way
+                // (beta.39 without the guardian gives a different address) and sign
+                // the enable with the 2.1.0 method (`experimental_` prefix dropped).
+                const recoverableAccount = await recoverableMoneyAccount({
+                    ownerPasskey: passkeyAccount,
+                    guardianAddress: config.moneyGuardian,
+                    salt: prepare.moneyWalletSalt as Hex,
+                });
+                derivedAddress = recoverableAccount.getAddress();
+                if (derivedAddress.toLowerCase() !== prepare.address.toLowerCase()) {
+                    throw new Error(
+                        `Address mismatch after prepare: expected ${prepare.address}, got ${derivedAddress}`,
+                    );
+                }
+                signature = await recoverableAccount.signEnableSession(
                     sessionDetailsForSign as Parameters<
-                        typeof rhinestoneAccount.experimental_signEnableSession
+                        typeof recoverableAccount.signEnableSession
                     >[0],
                 );
+            } else {
+                const rhinestone = new RhinestoneSDK({
+                    apiKey: 'proxy',
+                    endpointUrl: getRhinestoneEndpoint(),
+                });
+
+                const rhinestoneAccount = await rhinestone.createAccount({
+                    account: {
+                        type: 'nexus',
+                        salt: prepare.moneyWalletSalt as Hex,
+                    },
+                    owners: {
+                        type: 'passkey',
+                        accounts: [passkeyAccount],
+                    },
+                    experimental_sessions: {
+                        enabled: true,
+                    },
+                });
+
+                derivedAddress = rhinestoneAccount.getAddress();
+                if (derivedAddress.toLowerCase() !== prepare.address.toLowerCase()) {
+                    throw new Error(
+                        `Address mismatch after prepare: expected ${prepare.address}, got ${derivedAddress}`,
+                    );
+                }
+
+                signature =
+                    await rhinestoneAccount.experimental_signEnableSession(
+                        sessionDetailsForSign as Parameters<
+                            typeof rhinestoneAccount.experimental_signEnableSession
+                        >[0],
+                    );
+            }
 
             console.log('[deposit-reg] Session signed successfully');
 
