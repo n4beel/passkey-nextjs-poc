@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRhinestoneTransfer } from '@/hooks/useRhinestoneTransfer';
 import { signedFetch } from '@/lib/api/signedFetch';
+import { getExplorerTxUrl } from '@/lib/explorer';
 
 type WalletType = 'money' | 'spot';
 
@@ -29,17 +30,7 @@ const DEST_CHAINS: { id: number; name: string }[] = [
 ];
 
 /** Block explorer tx URL by chainId (for the success link). */
-function explorerTx(chainId: number, hash: string): string {
-    const base: Record<number, string> = {
-        9745: 'https://plasmascan.to/tx/',
-        8453: 'https://basescan.org/tx/',
-        42161: 'https://arbiscan.io/tx/',
-        10: 'https://optimistic.etherscan.io/tx/',
-        137: 'https://polygonscan.com/tx/',
-        1: 'https://etherscan.io/tx/',
-    };
-    return (base[chainId] ?? 'https://blockscan.com/tx/') + hash;
-}
+const explorerTx = getExplorerTxUrl;
 
 /**
  * Isolated test screen for Withdraw — send funds OUT to an external EVM address.

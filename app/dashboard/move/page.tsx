@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRhinestoneTransfer } from '@/hooks/useRhinestoneTransfer';
+import { getExplorerTxUrl } from '@/lib/explorer';
 
 type Direction = 'money-to-spot' | 'spot-to-money';
 
@@ -85,7 +86,7 @@ export default function MovePage() {
                     {result && (
                         <div className="mt-4 bg-emerald-50 text-emerald-700 text-sm rounded-lg p-3">
                             <p className="font-semibold">Moved ✓</p>
-                            <a href={`https://plasmascan.to/tx/${result.hash}`} target="_blank" rel="noreferrer" className="font-mono text-xs underline break-all">{result.hash}</a>
+                            <a href={getExplorerTxUrl(56, result.hash)} target="_blank" rel="noreferrer" className="font-mono text-xs underline break-all">{result.hash}</a>
                         </div>
                     )}
                 </div>

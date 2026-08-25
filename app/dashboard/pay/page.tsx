@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRhinestoneTransfer } from '@/hooks/useRhinestoneTransfer';
+import { getExplorerTxUrl } from '@/lib/explorer';
 
 /**
  * Isolated test screen for the Model A server-prepared Money-wallet payment
@@ -129,7 +130,7 @@ export default function PayPage() {
                         <div className="mt-4 bg-emerald-50 text-emerald-700 text-sm rounded-lg p-3">
                             <p className="font-semibold">Paid ✓</p>
                             <a
-                                href={`https://plasmascan.to/tx/${result.hash}`}
+                                href={getExplorerTxUrl(56, result.hash)}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="font-mono text-xs underline break-all"
