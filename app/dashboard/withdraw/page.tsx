@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRhinestoneTransfer } from '@/hooks/useRhinestoneTransfer';
 import { signedFetch } from '@/lib/api/signedFetch';
+import { getExplorerTxUrl } from '@/lib/explorer';
 
 type WalletType = 'money' | 'spot';
 
@@ -17,18 +18,19 @@ type Holding = {
     usdValue: number;
 };
 
+/** EVM chains you can withdraw TO. Same chain as the asset = same-chain withdraw;
+ *  a different one bridges the asset (cross-chain). Backend validates the asset
+ *  actually exists on the chosen destination. */
+const DEST_CHAINS: { id: number; name: string }[] = [
+    { id: 8453, name: 'Base' },
+    { id: 42161, name: 'Arbitrum' },
+    { id: 10, name: 'Optimism' },
+    { id: 137, name: 'Polygon' },
+    { id: 1, name: 'Ethereum' },
+];
+
 /** Block explorer tx URL by chainId (for the success link). */
-function explorerTx(chainId: number, hash: string): string {
-    const base: Record<number, string> = {
-        9745: 'https://plasmascan.to/tx/',
-        8453: 'https://basescan.org/tx/',
-        42161: 'https://arbiscan.io/tx/',
-        10: 'https://optimistic.etherscan.io/tx/',
-        137: 'https://polygonscan.com/tx/',
-        1: 'https://etherscan.io/tx/',
-    };
-    return (base[chainId] ?? 'https://blockscan.com/tx/') + hash;
-}
+const explorerTx = getExplorerTxUrl;
 
 /**
  * Isolated test screen for Withdraw — send funds OUT to an external EVM address.
@@ -45,6 +47,8 @@ export default function WithdrawPage() {
 
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [walletType, setWalletType] = useState<WalletType>('money');
+    // Money only: what the recipient receives — USDT (direct) or USDC (same-chain swap on BSC).
+    const [outputToken, setOutputToken] = useState<'USDT' | 'USDC'>('USDT');
     const [toAddress, setToAddress] = useState('');
     const [amount, setAmount] = useState('');
     const [result, setResult] = useState<{ hash: string; chainId: number } | null>(null);
@@ -59,10 +63,16 @@ export default function WithdrawPage() {
     const [manualSymbol, setManualSymbol] = useState('USDC');
     const [manualChainId, setManualChainId] = useState('8453');
 
+    // Destination chain to RECEIVE on. Defaults to the asset's own chain
+    // (same-chain); choosing a different chain makes it a cross-chain withdraw.
+    const [destChainId, setDestChainId] = useState<string>('');
+
     const selected = holdings.find((h) => h.key === selectedKey) ?? null;
     // The effective asset + chain that will be submitted for a spot withdraw.
     const spotSymbol = manual ? manualSymbol : selected?.symbol ?? '';
     const spotChainId = manual ? manualChainId : selected ? String(selected.chainId) : '';
+    const isCrossChain =
+        walletType === 'spot' && !!destChainId && !!spotChainId && destChainId !== spotChainId;
 
     useEffect(() => {
         const token = localStorage.getItem('accessToken');
@@ -114,6 +124,12 @@ export default function WithdrawPage() {
         if (walletType === 'spot' && accessToken) fetchHoldings();
     }, [walletType, accessToken, fetchHoldings]);
 
+    // Default the destination chain to the asset's own chain (same-chain) whenever
+    // the selected asset/chain changes.
+    useEffect(() => {
+        if (spotChainId) setDestChainId(spotChainId);
+    }, [spotChainId]);
+
     const handleWithdraw = async () => {
         setResult(null);
         setLocalError(null);
@@ -130,11 +146,19 @@ export default function WithdrawPage() {
                 walletType,
                 toAddress: toAddress.trim(),
                 amount: amount.trim(),
-                ...(walletType === 'spot'
-                    ? { symbol: spotSymbol.trim(), chainId: parseInt(spotChainId, 10) }
-                    : {}),
+                ...(walletType === 'money'
+                    ? { outputToken }
+                    : {
+                        symbol: spotSymbol.trim(),
+                        chainId: parseInt(spotChainId, 10),
+                        // Only send destChainId when it differs — same-chain otherwise.
+                        ...(isCrossChain ? { destChainId: parseInt(destChainId, 10) } : {}),
+                    }),
             });
-            setResult({ hash: res.hash, chainId: walletType === 'money' ? 9745 : parseInt(spotChainId, 10) });
+            // Money is on BSC now; spot cross-chain fills on the destination chain.
+            const resultChainId =
+                walletType === 'money' ? 56 : parseInt(isCrossChain ? destChainId : spotChainId, 10);
+            setResult({ hash: res.hash, chainId: resultChainId });
         } catch (e: any) {
             setLocalError(e?.message || 'Withdraw failed');
         }
@@ -150,7 +174,7 @@ export default function WithdrawPage() {
 
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                     <h1 className="text-xl font-bold text-slate-900">Withdraw</h1>
-                    <p className="text-sm text-slate-500 mt-1">Send to an external address · same-chain · 0.1% fee deducted</p>
+                    <p className="text-sm text-slate-500 mt-1">Send to an external address · 0.1% fee deducted · spot can bridge cross-chain</p>
 
                     <div className="grid grid-cols-2 gap-2 mt-6">
                         {(['money', 'spot'] as WalletType[]).map((w) => (
@@ -161,10 +185,34 @@ export default function WithdrawPage() {
                                     ? 'bg-emerald-600 text-white border-emerald-600'
                                     : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
                             >
-                                {w === 'money' ? 'Money (USDT0/Plasma)' : 'Spot (asset chain)'}
+                                {w === 'money' ? 'Money (USDT/BSC)' : 'Spot (asset chain)'}
                             </button>
                         ))}
                     </div>
+
+                    {walletType === 'money' && (
+                        <div className="mt-4">
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Recipient receives</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {(['USDT', 'USDC'] as const).map((t) => (
+                                    <button
+                                        key={t}
+                                        onClick={() => setOutputToken(t)}
+                                        className={`rounded-lg py-2.5 text-sm font-medium border transition ${outputToken === t
+                                            ? 'bg-emerald-600 text-white border-emerald-600'
+                                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
+                                    >
+                                        {t}{t === 'USDC' ? ' · swap' : ' · direct'}
+                                    </button>
+                                ))}
+                            </div>
+                            {outputToken === 'USDC' && (
+                                <p className="mt-1 text-xs text-amber-600">
+                                    USDC is delivered via a same-chain swap on BSC (0.5% slippage) — no bridge.
+                                </p>
+                            )}
+                        </div>
+                    )}
 
                     {walletType === 'spot' && (
                         <div className="mt-4">
@@ -245,6 +293,33 @@ export default function WithdrawPage() {
                         </div>
                     )}
 
+                    {walletType === 'spot' && (
+                        <div className="mt-4">
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Receive on chain</label>
+                            <select
+                                value={destChainId}
+                                onChange={(e) => setDestChainId(e.target.value)}
+                                className={input}
+                            >
+                                {/* Always allow the asset's own chain (same-chain) even if not in the preset list. */}
+                                {spotChainId && !DEST_CHAINS.some((c) => String(c.id) === spotChainId) && (
+                                    <option value={spotChainId}>Source chain ({spotChainId})</option>
+                                )}
+                                {DEST_CHAINS.map((c) => (
+                                    <option key={c.id} value={String(c.id)}>
+                                        {c.name}{String(c.id) === spotChainId ? ' (same chain)' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            {isCrossChain && (
+                                <p className="mt-1 text-xs text-amber-600">
+                                    Cross-chain: {spotSymbol || 'the asset'} is bridged to the destination and
+                                    delivered net of bridge + 0.1% fees. Small amounts may be uneconomical.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
                     <label className="block text-sm font-medium text-slate-700 mt-4 mb-1">Destination address</label>
                     <input
                         value={toAddress}
@@ -254,7 +329,10 @@ export default function WithdrawPage() {
                     />
 
                     <label className="block text-sm font-medium text-slate-700 mt-4 mb-1">
-                        Amount ({walletType === 'money' ? 'USDT0' : spotSymbol || 'token'})
+                        Amount ({walletType === 'money' ? 'USDT' : spotSymbol || 'token'})
+                        {walletType === 'money' && outputToken === 'USDC' && (
+                            <span className="text-slate-400 font-normal"> → swapped to USDC</span>
+                        )}
                     </label>
                     <input
                         value={amount}

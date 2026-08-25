@@ -14,6 +14,7 @@ import {
 import * as viemChains from 'viem/chains';
 import { plasma, plasmaTestnet, PLASMA_USDT0_ADDRESS } from '@/lib/chains/plasma';
 import { signedFetch } from '@/lib/api/signedFetch';
+import { recoverableMoneyAccount, recoveredMoneyAccount, MONEY_WALLET_SALT } from '@/lib/recovery/recovery';
 
 /** Canonical Permit2 — the spender a Rhinestone intent's source claim pulls through. */
 const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3' as `0x${string}`;
@@ -85,7 +86,11 @@ interface TransferResult {
 
 /** The swap quote returned by /swap/prepare (summary block). */
 interface SwapSummary {
-    from: { symbol: string; address: string; chainId: number; amount: string };
+    from: {
+        symbol: string; address: string; chainId: number; amount: string;
+        // Per-chain breakdown of where the input is sourced from (multi-source).
+        sources?: { chainId: number; address: string; amount: string }[];
+    };
     to: {
         symbol: string; address: string; chainId: number;
         estimatedOutput: string | null;
@@ -148,6 +153,28 @@ export function useRhinestoneTransfer() {
             rpId: window.location.hostname,
         });
 
+        // RECOVERED money wallet: the login passkey rotated, so the address can't be
+        // re-derived — pin to the stored address, sign with the current passkey.
+        // Takes priority over the guardian path (a recovered wallet still has one).
+        if (walletType === 'money' && config.moneyRecovered && config.moneyAddress) {
+            return recoveredMoneyAccount({
+                ownerPasskey: passkeyAccount,
+                address: config.moneyAddress,
+            });
+        }
+
+        // Recovery-enabled (not yet recovered) MONEY wallet: the backend derived it
+        // on SDK 2.1.0 with the guardian baked into the address, so build the SAME
+        // way — the plain path below (no guardian) derives a different, unfunded
+        // address, so a pay/withdraw intent sources from an empty account.
+        if (walletType === 'money' && config.moneyGuardian) {
+            return recoverableMoneyAccount({
+                ownerPasskey: passkeyAccount,
+                guardianAddress: config.moneyGuardian,
+                salt: MONEY_WALLET_SALT,
+            });
+        }
+
         // 4. Create Rhinestone SDK with proxy endpoint (API key stays server-side)
         const rhinestone = new RhinestoneSDK({
             apiKey: 'proxy',
@@ -175,7 +202,7 @@ export function useRhinestoneTransfer() {
         // account (confirmed w/ Rhinestone: the intent was built for the
         // sessions-off address which had 0 funds — the AA21 "didn't pay prefund"
         // and "insufficient balance" errors on spot withdraw/activate).
-        accountConfig.experimental_sessions = { enabled: true };
+        accountConfig.sessions = { enabled: true };
 
         const rhinestoneAccount = await rhinestone.createAccount(accountConfig);
         return rhinestoneAccount;
@@ -406,6 +433,9 @@ export function useRhinestoneTransfer() {
                     address: t.address as `0x${string}`,
                     amount: BigInt(t.amount),
                 })),
+                // Same-chain intent (money→money on BSC): relayer must sponsor it, or
+                // it sits waiting for a solver that never comes → EXPIRED (bug #3).
+                sponsored: true,
             });
             await rhinestoneAccount.waitForExecution(txResult);
 
@@ -529,6 +559,10 @@ export function useRhinestoneTransfer() {
         amount: string;
         symbol?: string;
         chainId?: number;
+        destChainId?: number;
+        // Money only: 'USDT' (default, sent directly) or 'USDC' (same-chain swap on
+        // BSC → the response comes back swap-shaped and is submitted like a swap).
+        outputToken?: 'USDT' | 'USDC';
     }): Promise<TransferResult> => {
         setIsSending(true);
         setError(null);
@@ -543,6 +577,8 @@ export function useRhinestoneTransfer() {
                     amount: params.amount,
                     ...(params.symbol ? { symbol: params.symbol } : {}),
                     ...(params.chainId ? { chainId: params.chainId } : {}),
+                    ...(params.destChainId ? { destChainId: params.destChainId } : {}),
+                    ...(params.outputToken ? { outputToken: params.outputToken } : {}),
                 },
                 headers: { 'ngrok-skip-browser-warning': 'true' },
             });
@@ -554,31 +590,64 @@ export function useRhinestoneTransfer() {
                 chainId: number;
                 signWith: 'money' | 'spot';
                 calls: { to: string; value: string; data: string }[];
-                tokenRequests: { address: string; amount: string }[];
+                tokenRequests: { address: string; amount?: string }[];
+                // Cross-chain only (present when destChainId differs): the swap
+                // intent shape — source on sourceChainIds, fill on targetChainId.
+                targetChainId?: number;
+                sourceChainIds?: number[];
+                sourceAssets?: { chainId: number; address: string; amount: string }[];
             } = await prepareRes.json();
 
             // Sign with the wallet the backend chose (money or spot).
             const account = await buildRhinestoneAccount(params.accessToken, prepare.signWith);
-            const chain = getChainById(prepare.chainId);
             const calls = prepare.calls.map((c) => ({
                 to: c.to as `0x${string}`,
                 value: BigInt(c.value),
                 data: c.data as Hex,
             }));
 
-            // Withdraw is always same-chain. Plasma routes through the intent path
-            // (sendTransaction + tokenRequests — the move-proven path; the raw
-            // user-op path hits pimlico's "undefined.fast" on Plasma). Every other
-            // chain must use a direct user-op: same-chain on the intents path 422s
-            // with INSUFFICIENT_LIQUIDITY (same as the claim flow).
             let intentId: string;
-            if (isPlasmaChain(prepare.chainId)) {
+            if (prepare.sourceAssets?.length) {
+                // SOURCE-ASSETS path — used by BOTH the spot cross-chain withdraw
+                // (bridge to another chain) and the money USDT→USDC swap-out (same
+                // chain in and out). Declare the source asset (exact input) so the
+                // orchestrator finds the balance; the target-chain `calls` do the
+                // delivery + fee skim, and `tokenRequests` names what to receive.
+                // Target chain: explicit for cross-chain, else the source/prepare chain.
+                const targetChainId = prepare.targetChainId ?? prepare.chainId;
+                const sourceChainIds = prepare.sourceChainIds ?? [targetChainId];
+                // Same-chain swap (money USDT→USDC): sponsor it so the relayer pays
+                // gas + fills, instead of the account paying gas from the input and
+                // waiting on a solver (which leaves small swaps stuck pending).
+                const sameChain = sourceChainIds.every((id) => id === targetChainId);
+                const txResult = await sendTx(account, {
+                    sourceChains: sourceChainIds.map(getChainById),
+                    targetChain: getChainById(targetChainId),
+                    sourceAssets: prepare.sourceAssets.map((a) => ({
+                        chain: getChainById(a.chainId),
+                        address: a.address as `0x${string}`,
+                        amount: BigInt(a.amount),
+                    })),
+                    calls,
+                    tokenRequests: prepare.tokenRequests.map((t) => ({
+                        address: t.address as `0x${string}`,
+                        ...(t.amount ? { amount: BigInt(t.amount) } : {}),
+                    })),
+                    ...(sameChain ? { sponsored: true } : {}),
+                } as any);
+                await account.waitForExecution(txResult);
+                intentId = String((txResult as any).id);
+            } else if (isPlasmaChain(prepare.chainId)) {
+                // Same-chain on Plasma: intent path (sendTransaction + tokenRequests —
+                // the move-proven path; the raw user-op path hits pimlico's
+                // "undefined.fast" on Plasma).
+                const chain = getChainById(prepare.chainId);
                 const txResult = await sendTx(account,{
                     chain,
                     calls,
                     tokenRequests: prepare.tokenRequests.map((t) => ({
                         address: t.address as `0x${string}`,
-                        amount: BigInt(t.amount),
+                        amount: BigInt(t.amount ?? '0'),
                     })),
                 });
                 await account.waitForExecution(txResult);
@@ -590,6 +659,7 @@ export function useRhinestoneTransfer() {
                 // (the spot account may hold 0 native). No tokenRequests — the account
                 // already holds the asset, so there's nothing to source; passing them
                 // makes the same-chain fill 422 on liquidity.
+                const chain = getChainById(prepare.chainId);
                 const txResult = await sendTx(account,{ chain, calls, sponsored: true });
                 const receipt = await account.waitForExecution(txResult);
                 // Sponsored user-op: the receipt carries the real tx hash. Fall
@@ -824,7 +894,9 @@ export function useRhinestoneTransfer() {
     const quoteSwap = useCallback(async (params: {
         accessToken: string;
         fromToken: string; fromSymbol: string; fromDecimals: number; fromChainId: number;
-        toToken: string; toSymbol: string; toDecimals: number; toChainId: number;
+        // Omit toToken/toChainId/toDecimals to let the backend RESOLVER auto-pick the
+        // output chain (BSC-preferred) from just toSymbol.
+        toToken?: string; toSymbol: string; toDecimals?: number; toChainId?: number;
         amount: string;
     }): Promise<SwapSummary> => {
         const res = await signedFetch('/swap/prepare', {
@@ -833,8 +905,10 @@ export function useRhinestoneTransfer() {
             json: {
                 fromToken: params.fromToken, fromSymbol: params.fromSymbol,
                 fromDecimals: params.fromDecimals, fromChainId: params.fromChainId,
-                toToken: params.toToken, toSymbol: params.toSymbol,
-                toDecimals: params.toDecimals, toChainId: params.toChainId,
+                toSymbol: params.toSymbol,
+                ...(params.toToken ? { toToken: params.toToken } : {}),
+                ...(params.toChainId != null ? { toChainId: params.toChainId } : {}),
+                ...(params.toDecimals != null ? { toDecimals: params.toDecimals } : {}),
                 amount: params.amount,
             },
             headers: { 'ngrok-skip-browser-warning': 'true' },
@@ -854,7 +928,9 @@ export function useRhinestoneTransfer() {
     const swapViaBackend = useCallback(async (params: {
         accessToken: string;
         fromToken: string; fromSymbol: string; fromDecimals: number; fromChainId: number;
-        toToken: string; toSymbol: string; toDecimals: number; toChainId: number;
+        // Omit toToken/toChainId/toDecimals to let the backend RESOLVER auto-pick the
+        // output chain (BSC-preferred) from just toSymbol.
+        toToken?: string; toSymbol: string; toDecimals?: number; toChainId?: number;
         amount: string;
     }): Promise<TransferResult> => {
         setIsSending(true);
@@ -867,8 +943,10 @@ export function useRhinestoneTransfer() {
                 json: {
                     fromToken: params.fromToken, fromSymbol: params.fromSymbol,
                     fromDecimals: params.fromDecimals, fromChainId: params.fromChainId,
-                    toToken: params.toToken, toSymbol: params.toSymbol,
-                    toDecimals: params.toDecimals, toChainId: params.toChainId,
+                    toSymbol: params.toSymbol,
+                    ...(params.toToken ? { toToken: params.toToken } : {}),
+                    ...(params.toChainId != null ? { toChainId: params.toChainId } : {}),
+                    ...(params.toDecimals != null ? { toDecimals: params.toDecimals } : {}),
                     amount: params.amount,
                 },
                 headers: { 'ngrok-skip-browser-warning': 'true' },
@@ -880,6 +958,7 @@ export function useRhinestoneTransfer() {
                 prepareId: string;
                 targetChainId: number;
                 sourceChainIds: number[];
+                sponsored?: boolean;
                 calls: { to: string; value: string; data: string }[];
                 tokenRequests: { address: string; amount?: string }[];
                 sourceAssets?: { chainId: number; address: string; amount: string }[];
@@ -889,6 +968,9 @@ export function useRhinestoneTransfer() {
             const txResult = await sendTx(account,{
                 sourceChains: prepare.sourceChainIds.map(getChainById),
                 targetChain: getChainById(prepare.targetChainId),
+                // Match the backend's sponsored quote — our balance covers gas so
+                // the user pays none (defaults true if the field is absent).
+                sponsored: prepare.sponsored ?? true,
                 // Exact-input: declare the source asset explicitly (matches the
                 // working quote) so the orchestrator finds the balance, instead of
                 // relying on Warp auto-pick — which zero-balances a fresh account.
@@ -951,6 +1033,33 @@ export function useRhinestoneTransfer() {
     }, [buildRhinestoneAccount]);
 
     /**
+     * The BACKEND portfolio for a wallet (`GET /wallet/balances`) — the same
+     * per-asset + per-chain view the swap uses to decide which chains to source a
+     * multi-source swap from. Use this (not the SDK getPortfolio) to preview what a
+     * swap will actually aggregate, since the backend only sees registry-active
+     * chains/tokens.
+     */
+    const getBackendBalances = useCallback(async (params: {
+        accessToken: string;
+        walletType: 'spot' | 'money';
+    }): Promise<{
+        totalUsd: string;
+        assets: {
+            symbol: string; name?: string; totalBalance: string;
+            totalUsdValue: string; decimals: number; logoURI?: string | null;
+            chains: { chainId: number; type: string; network: string; address: string; balance: string; usdValue: number }[];
+        }[];
+    }> => {
+        const res = await signedFetch(`/wallet/balances?walletType=${params.walletType}`, {
+            method: 'GET',
+            auth: true,
+            headers: { 'ngrok-skip-browser-warning': 'true' },
+        });
+        if (!res.ok) throw new Error(`Balances failed: ${res.status} ${await res.text()}`);
+        return res.json();
+    }, []);
+
+    /**
      * TEMP (deposit debug): deploy a wallet on a chain up front, so its FIRST
      * deposit bridge only has to enable+use the deposit session on an already
      * deployed account (the path that works) instead of deploy+enable in one tx
@@ -991,6 +1100,7 @@ export function useRhinestoneTransfer() {
         quoteSwap,
         swapViaBackend,
         getPortfolio,
+        getBackendBalances,
         deployWallet,
         isSending,
         error,

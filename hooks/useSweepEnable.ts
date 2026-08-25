@@ -100,7 +100,7 @@ export function useSweepEnable() {
                     type: 'passkey',
                     accounts: [passkeyAccount],
                 },
-                experimental_sessions: {
+                sessions: {
                     enabled: true,
                 },
             });
@@ -123,9 +123,9 @@ export function useSweepEnable() {
             };
 
             const signature =
-                await rhinestoneAccount.experimental_signEnableSession(
+                await rhinestoneAccount.signEnableSession(
                     sessionDetailsForSign as Parameters<
-                        typeof rhinestoneAccount.experimental_signEnableSession
+                        typeof rhinestoneAccount.signEnableSession
                     >[0],
                 );
 

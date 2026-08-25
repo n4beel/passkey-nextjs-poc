@@ -4,10 +4,28 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { signedFetch } from '@/lib/api/signedFetch';
+import { RecoveryProviders } from '../../recovery-poc/providers';
 
+// Google SSO (Privy) is nested here so the guardian EOA is available during
+// registration and baked into the smart account (social recovery) at signup.
 export default function PasskeyRegistrationPage() {
+    return (
+        <RecoveryProviders>
+            <PasskeyRegistrationInner />
+        </RecoveryProviders>
+    );
+}
+
+function PasskeyRegistrationInner() {
     const router = useRouter();
+    const { ready: privyReady, authenticated, login: privyLogin, logout: privyLogout, user: privyUser } = usePrivy();
+    const { wallets: privyWallets } = useWallets();
+    // The Google-backed embedded EOA = the recovery guardian.
+    const guardianWallet = privyWallets.find((w) => w.walletClientType === 'privy');
+    const guardianAddress = guardianWallet?.address;
+    const guardianEmail = privyUser?.google?.email ?? privyUser?.email?.address ?? privyUser?.id;
     const [step, setStep] = useState<'input' | 'registering' | 'creating_wallets' | 'success'>('input');
     const [reservationToken, setReservationToken] = useState('');
     const [referralCode, setReferralCode] = useState('');
@@ -59,6 +77,9 @@ export default function PasskeyRegistrationPage() {
                 json: {
                     reservationToken,
                     ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
+                    // Present → backend derives recovery-enabled wallets (2.1.0) with
+                    // this Google guardian baked in. Absent → legacy no-recovery wallets.
+                    ...(guardianAddress ? { guardianAddress } : {}),
                     credential: attResp,
                     deviceInfo: {
                         userAgent: navigator.userAgent,
@@ -207,6 +228,39 @@ export default function PasskeyRegistrationPage() {
                                 <p className="text-gray-300 mb-4">
                                     Enter your reservation token from Phase 1 to create a passkey
                                 </p>
+
+                                {/* Recovery guardian (Google SSO) — sets up social recovery at signup */}
+                                <div className="mb-4 p-4 bg-white/5 border border-white/20 rounded-lg">
+                                    {!authenticated ? (
+                                        <>
+                                            <p className="text-sm text-gray-300 mb-3">
+                                                Set a <strong className="text-white">recovery guardian</strong> so a lost passkey can be restored. Sign in with Google — this becomes your guardian.
+                                            </p>
+                                            <button
+                                                onClick={privyLogin}
+                                                disabled={!privyReady}
+                                                className="w-full px-4 py-2.5 bg-white text-gray-800 rounded-lg font-medium hover:bg-gray-100 transition-all disabled:opacity-50"
+                                            >
+                                                {privyReady ? 'Sign in with Google (set recovery guardian)' : 'Loading…'}
+                                            </button>
+                                            <p className="text-xs text-gray-400 mt-2">Optional — skip to create a wallet without recovery.</p>
+                                        </>
+                                    ) : (
+                                        <div className="text-sm text-green-200">
+                                            ✅ Recovery guardian: <strong>{guardianEmail}</strong>
+                                            <br />
+                                            <span className="text-xs break-all font-mono text-gray-300">{guardianAddress ?? 'creating embedded wallet…'}</span>
+                                            <br />
+                                            <button
+                                                onClick={() => privyLogout()}
+                                                className="mt-2 text-xs underline text-amber-300 hover:text-amber-200"
+                                            >
+                                                Disconnect Google (create WITHOUT recovery — to test enable-from-settings)
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <input
                                     type="text"
                                     placeholder="Reservation Token"
@@ -221,12 +275,27 @@ export default function PasskeyRegistrationPage() {
                                     onChange={(e) => setReferralCode(e.target.value)}
                                     className="w-full mt-3 px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                 />
+                                {/* Guardian must be loaded before the passkey is created, or the
+                                    account is derived WITHOUT recovery (the guardian rides along
+                                    on register/verify). Gate the button until it's ready. */}
+                                {authenticated && !guardianAddress && (
+                                    <div className="mt-3 flex items-center gap-2 text-sm text-amber-300">
+                                        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-amber-300 border-t-transparent" />
+                                        Preparing recovery guardian… (creating embedded wallet)
+                                    </div>
+                                )}
                                 <button
                                     onClick={handleRegister}
-                                    disabled={loading || !reservationToken}
+                                    disabled={loading || !reservationToken || (authenticated && !guardianAddress)}
                                     className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {loading ? 'Creating Passkey...' : '🔐 Create Passkey'}
+                                    {loading
+                                        ? 'Creating Passkey...'
+                                        : authenticated && !guardianAddress
+                                            ? 'Waiting for guardian…'
+                                            : authenticated
+                                                ? '🔐 Create Passkey (with recovery)'
+                                                : '🔐 Create Passkey (NO recovery)'}
                                 </button>
                             </div>
 
