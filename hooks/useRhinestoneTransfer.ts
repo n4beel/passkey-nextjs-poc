@@ -14,7 +14,7 @@ import {
 import * as viemChains from 'viem/chains';
 import { plasma, plasmaTestnet, PLASMA_USDT0_ADDRESS } from '@/lib/chains/plasma';
 import { signedFetch } from '@/lib/api/signedFetch';
-import { recoverableMoneyAccount, MONEY_WALLET_SALT } from '@/lib/recovery/recovery';
+import { recoverableMoneyAccount, recoveredMoneyAccount, MONEY_WALLET_SALT } from '@/lib/recovery/recovery';
 
 /** Canonical Permit2 — the spender a Rhinestone intent's source claim pulls through. */
 const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3' as `0x${string}`;
@@ -153,11 +153,20 @@ export function useRhinestoneTransfer() {
             rpId: window.location.hostname,
         });
 
-        // Recovery-enabled MONEY wallet: the backend derived it on SDK 2.1.0 with the
-        // guardian baked into the address, so build the SAME way here — the beta.39
-        // path below (no guardian) derives a different, unfunded address, so a pay /
-        // withdraw intent sources from an empty account → "no viable route". Spot is
-        // left on the beta.39 path for now.
+        // RECOVERED money wallet: the login passkey rotated, so the address can't be
+        // re-derived — pin to the stored address, sign with the current passkey.
+        // Takes priority over the guardian path (a recovered wallet still has one).
+        if (walletType === 'money' && config.moneyRecovered && config.moneyAddress) {
+            return recoveredMoneyAccount({
+                ownerPasskey: passkeyAccount,
+                address: config.moneyAddress,
+            });
+        }
+
+        // Recovery-enabled (not yet recovered) MONEY wallet: the backend derived it
+        // on SDK 2.1.0 with the guardian baked into the address, so build the SAME
+        // way — the plain path below (no guardian) derives a different, unfunded
+        // address, so a pay/withdraw intent sources from an empty account.
         if (walletType === 'money' && config.moneyGuardian) {
             return recoverableMoneyAccount({
                 ownerPasskey: passkeyAccount,
@@ -193,7 +202,7 @@ export function useRhinestoneTransfer() {
         // account (confirmed w/ Rhinestone: the intent was built for the
         // sessions-off address which had 0 funds — the AA21 "didn't pay prefund"
         // and "insufficient balance" errors on spot withdraw/activate).
-        accountConfig.experimental_sessions = { enabled: true };
+        accountConfig.sessions = { enabled: true };
 
         const rhinestoneAccount = await rhinestone.createAccount(accountConfig);
         return rhinestoneAccount;
@@ -424,6 +433,9 @@ export function useRhinestoneTransfer() {
                     address: t.address as `0x${string}`,
                     amount: BigInt(t.amount),
                 })),
+                // Same-chain intent (money→money on BSC): relayer must sponsor it, or
+                // it sits waiting for a solver that never comes → EXPIRED (bug #3).
+                sponsored: true,
             });
             await rhinestoneAccount.waitForExecution(txResult);
 

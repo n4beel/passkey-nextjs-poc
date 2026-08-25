@@ -46,7 +46,7 @@ interface ExtendCompleteResponse {
  *
  * Flow:
  *   1. POST /deposit/session-extend/prepare  (backend computes the delta)
- *   2. Client signs sessionDetails with experimental_signEnableSession
+ *   2. Client signs sessionDetails with signEnableSession
  *   3. POST /deposit/session-extend/complete (backend forwards to Rhinestone
  *      and appends chain IDs to approvedSessionChainIds)
  */
@@ -108,7 +108,7 @@ export function useExtendSession() {
                     type: 'passkey',
                     accounts: [passkeyAccount],
                 },
-                experimental_sessions: { enabled: true },
+                sessions: { enabled: true },
             });
 
             const derived = rhinestoneAccount.getAddress();
@@ -127,9 +127,9 @@ export function useExtendSession() {
                 data: prepare.sessionDetails.data,
             };
 
-            const signature = await rhinestoneAccount.experimental_signEnableSession(
+            const signature = await rhinestoneAccount.signEnableSession(
                 sessionDetailsForSign as Parameters<
-                    typeof rhinestoneAccount.experimental_signEnableSession
+                    typeof rhinestoneAccount.signEnableSession
                 >[0],
             );
 

@@ -9,11 +9,13 @@ import {
   ownerFromCoords,
   createRecoverableAccount,
   createPlainAccount,
+  reconstructForRecovery,
   enableRecovery,
   recoverToNewPasskey,
   pubXY,
   xyHex,
   chainById,
+  MONEY_WALLET_SALT,
 } from '@/lib/recovery/recovery';
 import { base, bsc } from 'viem/chains';
 import { signedFetch } from '@/lib/api/signedFetch';
@@ -25,6 +27,8 @@ interface WalletInfo {
   salt?: string;
   chainIds: number[];
   deployedChains: number[];
+  // false = guardian retrofitted at runtime (plain address) → reconstruct pinned.
+  recoveryBakedIn?: boolean;
 }
 interface LookupResult {
   username: string;
@@ -48,6 +52,7 @@ interface Target {
   deployed?: boolean;
   addressOk?: boolean;
   recovered?: boolean;
+  bakedIn?: boolean;
 }
 
 export default function RecoveryPocPage() {
@@ -55,6 +60,7 @@ export default function RecoveryPocPage() {
   const { wallets } = useWallets();
 
   const [username, setUsername] = useState('');
+  const [accounts, setAccounts] = useState<Array<{ username: string; wallets: { money: string | null; spot: string | null } }>>([]);
   const [lookup, setLookup] = useState<LookupResult | null>(null);
   const [targets, setTargets] = useState<Target[]>([]);
   const [log, setLog] = useState<string[]>([]);
@@ -200,10 +206,126 @@ export default function RecoveryPocPage() {
     finally { setBusy(null); }
   };
 
-  const doLookup = async () => {
+  /**
+   * BACKEND-INTEGRATED enable-from-settings ("backup") for BOTH wallets. For each
+   * of money + spot: /recovery/enable/prepare → rebuild the account the way the
+   * backend derived it (money salt / spot none) → deploy ONLY if not already
+   * deployed → install the social-recovery module (owner passkey signs, sponsored)
+   * → /recovery/enable/complete (records recoveryEnabled + guardian +
+   * recoveryBakedIn=false). Idempotent: an already-enabled wallet is skipped (its
+   * enable/prepare 400s), and a deployed account is never re-deployed. Needs: logged
+   * in on the dashboard (accessToken) + Google connected (guardian).
+   */
+  const enableFromSettings = async () => {
+    setErr(null); setBusy('enablesettings'); setLog([]); setDone(false);
+    try {
+      const g = await guardian();
+      say(`Guardian (Google/Privy): ${g.address}`);
+
+      const cfgRes = await signedFetch('/wallet/config', {
+        auth: true,
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      if (!cfgRes.ok) throw new Error(`wallet/config ${cfgRes.status} — log in on the dashboard first (accessToken).`);
+      const cfg = await cfgRes.json();
+      const owner = ownerFromCoords({
+        credentialId: cfg.credentialId, x: cfg.pubX, y: cfg.pubY,
+        rpId: window.location.hostname,
+      });
+
+      for (const walletType of ['money', 'spot'] as const) {
+        say(`\n── ${walletType.toUpperCase()} ──`);
+        const prepRes = await signedFetch('/recovery/enable/prepare', {
+          method: 'POST', auth: true,
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+          json: { guardianAddress: g.address, walletType },
+        });
+        if (!prepRes.ok) {
+          // Already enabled (or no wallet) → skip; don't re-enable / re-deploy.
+          say(`  skip ${walletType}: ${prepRes.status} ${(await prepRes.text()).slice(0, 120)}`);
+          continue;
+        }
+        const prep = await prepRes.json();
+        const chain = chainById(prep.chainId) ?? testChain;
+        const salt = walletType === 'money' ? MONEY_WALLET_SALT : undefined;
+
+        // Rebuild the way the backend derived it (money salt / spot none) — same
+        // address + factory, so it self-deploys if needed.
+        const account = await createPlainAccount(owner, salt, chain);
+        const derived = account.getAddress();
+        if (derived.toLowerCase() !== prep.address.toLowerCase()) {
+          throw new Error(`${walletType} address mismatch: derived ${derived}, backend ${prep.address}`);
+        }
+        say(`  ${walletType} ${prep.address} on chain ${prep.chainId}`);
+
+        // Deploy ONLY if not already deployed — never deploy the same account twice.
+        let deployed = await account.isDeployed(chain).catch(() => false);
+        if (deployed) {
+          say('  already deployed — skipping deploy');
+        } else {
+          say('  deploying (owner passkey — Touch ID; sponsored)…');
+          await account.deploy(chain);
+          for (let i = 0; i < 20; i++) {
+            if (await account.isDeployed(chain).catch(() => false)) break;
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+          deployed = await account.isDeployed(chain).catch(() => false);
+          if (!deployed) throw new Error(`${walletType} deploy did not confirm — retry.`);
+        }
+
+        say('  installing recovery module (owner passkey — Touch ID; sponsored)…');
+        const en = await enableRecovery({ account, guardian: g, chain });
+        const intentId = String(
+          (en.receipt as any)?.userOpHash ??
+            (en.receipt as any)?.receipt?.transactionHash ??
+            (en.receipt as any)?.transactionHash ??
+            'enabled',
+        );
+
+        const compRes = await signedFetch('/recovery/enable/complete', {
+          method: 'POST', auth: true,
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+          json: { prepareId: prep.prepareId, intentId },
+        });
+        if (!compRes.ok) throw new Error(`${walletType} enable/complete ${compRes.status}: ${await compRes.text()}`);
+        say(`  ✅ ${walletType} recovery enabled`);
+      }
+
+      setDone(true);
+      say('\n✅ Done — recovery enabled on both wallets (already-enabled ones skipped). Now Lookup + recover.');
+    } catch (e: any) { dump(e); setErr(e?.message ?? String(e)); }
+    finally { setBusy(null); }
+  };
+
+  // POC: connect Google → list the accounts this guardian can recover, so you pick
+  // one instead of typing a username.
+  const loadMyAccounts = async () => {
+    setErr(null); setBusy('accounts'); setLog([]); setAccounts([]);
+    try {
+      const g = await guardian();
+      const res = await signedFetch(`/recovery/accounts/${g.address}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      if (!res.ok) throw new Error((await res.json()).message || 'Failed to load accounts');
+      const list = await res.json();
+      setAccounts(list);
+      say(`Guardian ${g.address} → ${list.length} recoverable account(s).`);
+      if (!list.length) say('  (none — this Google account isn’t a guardian on any wallet yet)');
+    } catch (e: any) { dump(e); setErr(e?.message ?? String(e)); }
+    finally { setBusy(null); }
+  };
+
+  const pickAccount = async (uname: string) => {
+    setUsername(uname);
+    await doLookup(uname);
+  };
+
+  const doLookup = async (unameArg?: string) => {
+    const uname = (unameArg ?? username).trim();
+    if (!uname) { setErr('Pick an account or type a username.'); return; }
     setErr(null); setBusy('lookup'); setLog([]); setTargets([]); setDone(false);
     try {
-      const res = await signedFetch(`/recovery/lookup/${username.trim()}`, {
+      const res = await signedFetch(`/recovery/lookup/${uname}`, {
         headers: { 'ngrok-skip-browser-warning': 'true' },
       });
       if (!res.ok) throw new Error((await res.json()).message || 'Lookup failed');
@@ -224,7 +346,7 @@ export default function RecoveryPocPage() {
         for (const id of w.chainIds) {
           const chain = chainById(id);
           if (!chain) { say(`↷ skipping ${wt} on chain ${id} (no Pimlico support)`); continue; }
-          t.push({ key: `${wt}-${id}`, walletType: wt, address: w.address, salt: w.salt, chainId: id, chainName: chain.name });
+          t.push({ key: `${wt}-${id}`, walletType: wt, address: w.address, salt: w.salt, chainId: id, chainName: chain.name, bakedIn: w.recoveryBakedIn !== false });
         }
       };
       add('spot', data.wallets.spot);
@@ -249,11 +371,19 @@ export default function RecoveryPocPage() {
       const rows = only ? next.filter((t) => t.key === only.key) : next;
       for (const t of rows) {
         const chain = chainById(t.chainId)!;
-        const account = await createRecoverableAccount(owner, g, (t.salt as `0x${string}`) || undefined, chain);
+        // Retrofit wallets (enable-from-settings) have a plain address + runtime
+        // guardian module → reconstruct PINNED, not with the guardian baked in.
+        const account = await reconstructForRecovery({
+          owner, guardian: g,
+          salt: (t.salt as `0x${string}`) || undefined,
+          address: t.address,
+          bakedIn: t.bakedIn !== false,
+          chain,
+        });
         t.account = account;
         t.addressOk = account.getAddress().toLowerCase() === t.address.toLowerCase();
         t.deployed = await account.isDeployed(chain).catch(() => false);
-        say(`${t.walletType}@${t.chainName}: ${t.address} — match=${t.addressOk} deployed=${t.deployed}`);
+        say(`${t.walletType}@${t.chainName}: ${t.address} — ${t.bakedIn === false ? 'retrofit(pinned)' : 'baked-in'} match=${t.addressOk} deployed=${t.deployed}`);
         if (!t.addressOk) say(`  ⚠️ derivation mismatch for ${t.walletType}@${t.chainName}`);
       }
       setTargets(next);
@@ -269,6 +399,12 @@ export default function RecoveryPocPage() {
     try {
       if (!t.account) throw new Error('Reconstruct first.');
       const chain = chainById(t.chainId)!;
+      // Never deploy the same account twice.
+      if (await t.account.isDeployed(chain).catch(() => false)) {
+        t.deployed = true; setTargets([...targets]);
+        say(`  ${t.walletType}@${t.chainName} already deployed — skipping`);
+        return;
+      }
       say(`Deploying ${t.walletType}@${t.chainName} (owner passkey — Touch ID; sponsored)…`);
       await t.account.deploy(chain);
       for (let i = 0; i < 20; i++) { if (await t.account.isDeployed(chain).catch(() => false)) break; await new Promise((r) => setTimeout(r, 3000)); }
@@ -308,7 +444,7 @@ export default function RecoveryPocPage() {
           onStep: (i, total) => say(`  ${t.walletType}@${t.chainName} userOp ${i + 1}/${total}…`),
         });
         t.recovered = true;
-        say(`  ✅ ${t.walletType}@${t.chainName} owners now: ${JSON.stringify(res.ownersAfter)}`);
+        say(`  ✅ ${t.walletType}@${t.chainName} rotated. (getOwners=${JSON.stringify(res.ownersAfter)} reads the ECDSA validator — empty is NORMAL for a passkey account; the new passkey is in the WebAuthn validator. Confirm by logging in with the new key.)`);
         setTargets([...targets]);
       }
 
@@ -352,10 +488,16 @@ export default function RecoveryPocPage() {
 
       // 1) reconstruct + deploy each BSC wallet
       for (const t of bscTargets) {
-        t.account = await createRecoverableAccount(owner, g, (t.salt as `0x${string}`) || undefined, chain);
+        t.account = await reconstructForRecovery({
+          owner, guardian: g,
+          salt: (t.salt as `0x${string}`) || undefined,
+          address: t.address,
+          bakedIn: t.bakedIn !== false,
+          chain,
+        });
         const computed = t.account.getAddress();
         t.addressOk = computed.toLowerCase() === t.address.toLowerCase();
-        say(`${t.walletType}@BSC: stored=${t.address} computed=${computed} salt=${t.salt || '(none)'} match=${t.addressOk}`);
+        say(`${t.walletType}@BSC: stored=${t.address} computed=${computed} ${t.bakedIn === false ? 'retrofit(pinned)' : 'baked-in'} match=${t.addressOk}`);
         if (!t.addressOk) { say(`  ⚠️ ${t.walletType}@BSC derivation mismatch — skipping (won't rotate)`); continue; }
         t.deployed = await t.account.isDeployed(chain).catch(() => false);
         if (!t.deployed) {
@@ -452,14 +594,42 @@ export default function RecoveryPocPage() {
             <button onClick={enableTest} disabled={!!busy || !embedded} style={{ ...btn, background: '#fff' }}>
               {busy === 'enabletest' ? 'Running…' : 'Run enable-from-settings test'}
             </button>
+            <p style={{ marginTop: 12 }}>
+              <b>Backup from settings (REAL account):</b> runs the backend flow on your
+              logged-in wallets — for <b>money AND spot</b>: <code>enable/prepare</code> →
+              self-deploy if needed → install the module → <code>enable/complete</code>.
+              Idempotent — already-enabled wallets are skipped, deployed ones aren't
+              re-deployed. Needs: logged in on the dashboard + Google connected above.
+            </p>
+            <button onClick={enableFromSettings} disabled={!!busy || !embedded} style={{ ...btn, background: done ? '#e7f8ec' : '#fff' }}>
+              {busy === 'enablesettings' ? 'Running…' : 'Enable recovery on both wallets'}
+            </button>
           </div>
 
           <div style={box}>
-            <b>1. Look up the account</b>
-            <p style={{ marginTop: 6 }}>Enter the username registered in phase 2.</p>
+            <b>1. Pick the account to recover</b>
+            <p style={{ marginTop: 6 }}>Connect Google above, then list the wallets this guardian can recover and pick one.</p>
+            <button onClick={loadMyAccounts} disabled={!!busy || !embedded} style={btn}>
+              {busy === 'accounts' ? 'Loading…' : 'List my recoverable accounts'}
+            </button>
+            {accounts.length > 0 && (
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {accounts.map((a) => (
+                  <button key={a.username} onClick={() => pickAccount(a.username)} disabled={!!busy}
+                    style={{ ...btn, textAlign: 'left', background: username === a.username ? '#eef6ff' : '#fff' }}>
+                    <b>{a.username}</b>
+                    <br />
+                    <span style={{ fontSize: 12, color: '#555', fontFamily: 'monospace' }}>
+                      money: {a.wallets.money ?? '—'}  ·  spot: {a.wallets.spot ?? '—'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <p style={{ marginTop: 12, fontSize: 12, color: '#888' }}>Or look up by username:</p>
             <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username"
               style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #ccc', marginRight: 8, color: '#111', background: '#fff' }} />
-            <button onClick={doLookup} disabled={!!busy || !embedded || !username.trim()} style={btn}>{busy === 'lookup' ? 'Looking up…' : 'Look up'}</button>
+            <button onClick={() => doLookup()} disabled={!!busy || !embedded || !username.trim()} style={btn}>{busy === 'lookup' ? 'Looking up…' : 'Look up'}</button>
           </div>
 
           {targets.some((t) => t.chainId === bsc.id) && (

@@ -5,7 +5,7 @@ import { RhinestoneSDK } from '@rhinestone/sdk';
 import { toWebAuthnAccount } from 'viem/account-abstraction';
 import type { Hex } from 'viem';
 import { API_V2_BASE, signedFetch } from '@/lib/api/signedFetch';
-import { recoverableMoneyAccount } from '@/lib/recovery/recovery';
+import { recoverableMoneyAccount, recoveredMoneyAccount } from '@/lib/recovery/recovery';
 
 /** Get the Rhinestone SDK endpoint URL — uses our API proxy */
 function getRhinestoneEndpoint(): string {
@@ -32,6 +32,10 @@ interface PreparePendingSignature {
         data: Record<string, unknown>;
     };
     expiresIn: number;
+    // Present for a RECOVERED wallet: the stored factory args to sign the re-enable.
+    recovered?: boolean;
+    factory?: string;
+    factoryData?: string;
 }
 
 type PrepareResponse = PrepareAlreadyRegistered | PreparePendingSignature;
@@ -120,7 +124,29 @@ export function useDepositRegistration() {
             let derivedAddress: string;
             let signature: string;
 
-            if (config.moneyGuardian) {
+            if (config.moneyRecovered && config.moneyAddress) {
+                // RECOVERED wallet: the login passkey rotated, so the address can't
+                // be re-derived — pin to the stored address and re-sign the deposit
+                // session with the current (recovered) passkey. This re-establishes
+                // the deposit-service session that the recovery invalidated.
+                const recoveredAccount = await recoveredMoneyAccount({
+                    ownerPasskey: passkeyAccount,
+                    address: config.moneyAddress,
+                    factory: prepare.factory,
+                    factoryData: prepare.factoryData,
+                });
+                derivedAddress = recoveredAccount.getAddress();
+                if (derivedAddress.toLowerCase() !== prepare.address.toLowerCase()) {
+                    throw new Error(
+                        `Address mismatch after prepare: expected ${prepare.address}, got ${derivedAddress}`,
+                    );
+                }
+                signature = await recoveredAccount.signEnableSession(
+                    sessionDetailsForSign as Parameters<
+                        typeof recoveredAccount.signEnableSession
+                    >[0],
+                );
+            } else if (config.moneyGuardian) {
                 // Recovery-enabled money wallet: the backend derived it on SDK 2.1.0
                 // with the guardian baked into the address, so rebuild the SAME way
                 // (beta.39 without the guardian gives a different address) and sign
@@ -156,7 +182,7 @@ export function useDepositRegistration() {
                         type: 'passkey',
                         accounts: [passkeyAccount],
                     },
-                    experimental_sessions: {
+                    sessions: {
                         enabled: true,
                     },
                 });
@@ -169,9 +195,9 @@ export function useDepositRegistration() {
                 }
 
                 signature =
-                    await rhinestoneAccount.experimental_signEnableSession(
+                    await rhinestoneAccount.signEnableSession(
                         sessionDetailsForSign as Parameters<
-                            typeof rhinestoneAccount.experimental_signEnableSession
+                            typeof rhinestoneAccount.signEnableSession
                         >[0],
                     );
             }

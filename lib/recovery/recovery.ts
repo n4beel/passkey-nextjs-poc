@@ -1,6 +1,6 @@
 /**
- * Recovery lib — isolated on SDK 2.1.0 via the `@rhinestone/sdk-v2` alias, so it
- * coexists with the POC's beta.39 flows without changing any existing addresses.
+ * Recovery lib — on `@rhinestone/sdk` 2.1.0 (the whole app is 2.1.0 now; beta.39
+ * was dropped).
  *
  * Model B: an account is created (at signup, by the backend) with a passkey owner
  * AND a Google-backed guardian; if the passkey is lost, the guardian alone rotates
@@ -25,11 +25,11 @@ import {
   bsc,
 } from 'viem/chains';
 import type { Account, Chain, Hex } from 'viem';
-import { RhinestoneSDK } from '@rhinestone/sdk-v2';
+import { RhinestoneSDK } from '@rhinestone/sdk';
 import {
   enable,
   recoverPasskeyOwnership,
-} from '@rhinestone/sdk-v2/actions/recovery';
+} from '@rhinestone/sdk/actions/recovery';
 
 /**
  * Chains we can rotate on — those with a Pimlico bundler/paymaster (proxied) and
@@ -123,13 +123,39 @@ export function ownerFromCoords(params: {
   credentialId: string;
   x: string;
   y: string;
+  // Pass the passkey's rpId when the account will SIGN (e.g. enable-from-settings).
+  // Reconstruction-only uses (address derivation) can omit it — the address depends
+  // only on X/Y.
+  rpId?: string;
 }): WebAuthnAccount {
   const xHex = params.x.replace(/^0x/, '').padStart(64, '0');
   const yHex = params.y.replace(/^0x/, '').padStart(64, '0');
   const publicKey = ('0x04' + xHex + yHex) as Hex;
   return toWebAuthnAccount({
     credential: { id: params.credentialId, publicKey },
+    ...(params.rpId ? { rpId: params.rpId } : {}),
   });
+}
+
+/**
+ * Build a 2.1.0 account PINNED to an existing on-chain address (via initData), with
+ * the given owner passkey for signing. Lets the client target an already-deployed
+ * account — even a beta.39-derived money wallet — with 2.1.0 actions like `enable()`:
+ * the install is a self-call to `address` and the passkey signs the userOp. The
+ * account MUST already be deployed (initData:{address} carries no factory). Uses the
+ * full recovery SDK (Pimlico bundler + paymaster) so the userOp is sponsored.
+ */
+export function pinnedMoneyAccount(params: {
+  ownerPasskey: WebAuthnAccount;
+  address: string;
+  chain?: Chain;
+}) {
+  return sdk(params.chain ?? RECOVERY_CHAIN).createAccount({
+    account: { type: 'nexus' },
+    owners: { type: 'passkey', accounts: [params.ownerPasskey] },
+    sessions: { enabled: true },
+    initData: { address: params.address as Hex },
+  } as any);
 }
 
 /**
@@ -187,6 +213,44 @@ export async function createRecoverableAccount(
 }
 
 /**
+ * Reconstruct an account for RECOVERY (guardian rotates the lost passkey).
+ *  - baked-in wallet (guardian in the CREATE2 config): derive normally, the
+ *    guardian config yields the same address.
+ *  - RETROFIT wallet (enable-from-settings): the address is the PLAIN one and the
+ *    guardian is a runtime module — so PIN the plain address (initData) while still
+ *    passing `recovery:{guardians}` so recoverPasskeyOwnership finds the guardian.
+ * Either way the returned account resolves to the wallet's real address and knows
+ * the guardian for the rotation.
+ */
+export async function reconstructForRecovery(params: {
+  owner: WebAuthnAccount;
+  guardian: Account;
+  salt?: Hex;
+  address: string;
+  bakedIn: boolean;
+  chain?: Chain;
+}) {
+  const chain = params.chain ?? RECOVERY_CHAIN;
+  if (params.bakedIn) {
+    return createRecoverableAccount(
+      params.owner,
+      params.guardian,
+      params.salt,
+      chain,
+    );
+  }
+  const account: Record<string, unknown> = { type: 'nexus' };
+  if (params.salt) account.salt = params.salt;
+  return sdk(chain).createAccount({
+    account,
+    owners: { type: 'passkey', accounts: [params.owner] },
+    sessions: { enabled: true },
+    recovery: { guardians: [params.guardian] },
+    initData: { address: params.address as Hex },
+  } as any);
+}
+
+/**
  * Build the recoverable MONEY account for CLIENT money ops — deposit session-enable,
  * pay, move, withdraw. Same 2.1.0 + guardian derivation the backend uses
  * (recovery.service) so the derived address matches — keyed by the guardian ADDRESS,
@@ -217,6 +281,43 @@ export function recoverableMoneyAccount(params: {
     recovery: {
       guardians: [{ address: params.guardianAddress as Hex }],
     },
+  } as any);
+}
+
+/**
+ * Money account for a RECOVERED wallet — pinned to its stored address (initData),
+ * signed by the CURRENT (rotated) passkey. Same minimal orchestrator SDK as
+ * recoverableMoneyAccount (so pay/withdraw route the same), but the address is
+ * fixed rather than re-derived — after a recovery the login passkey no longer
+ * derives it. The account is already deployed (pinning carries no factory).
+ */
+export function recoveredMoneyAccount(params: {
+  ownerPasskey: WebAuthnAccount;
+  address: string;
+  // The account's stored factory args (from the backend). Needed to SIGN a session
+  // enable (deposit re-registration) — signEnableSession signs deployless/ERC-6492
+  // and requires them; the wrap is a no-op on the already-deployed account. Not
+  // needed for pay/withdraw/move (those use the intent path on a deployed account).
+  factory?: string;
+  factoryData?: string;
+}) {
+  const rhinestone = new RhinestoneSDK({
+    apiKey: 'proxy',
+    endpointUrl: rhinestoneEndpoint(),
+  });
+  const initData =
+    params.factory && params.factoryData
+      ? {
+          address: params.address as Hex,
+          factory: params.factory as Hex,
+          factoryData: params.factoryData as Hex,
+        }
+      : { address: params.address as Hex };
+  return rhinestone.createAccount({
+    account: { type: 'nexus' },
+    owners: { type: 'passkey', accounts: [params.ownerPasskey] },
+    sessions: { enabled: true },
+    initData,
   } as any);
 }
 

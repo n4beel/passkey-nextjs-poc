@@ -20,7 +20,7 @@ export default function PasskeyRegistrationPage() {
 
 function PasskeyRegistrationInner() {
     const router = useRouter();
-    const { ready: privyReady, authenticated, login: privyLogin, user: privyUser } = usePrivy();
+    const { ready: privyReady, authenticated, login: privyLogin, logout: privyLogout, user: privyUser } = usePrivy();
     const { wallets: privyWallets } = useWallets();
     // The Google-backed embedded EOA = the recovery guardian.
     const guardianWallet = privyWallets.find((w) => w.walletClientType === 'privy');
@@ -246,11 +246,18 @@ function PasskeyRegistrationInner() {
                                             <p className="text-xs text-gray-400 mt-2">Optional — skip to create a wallet without recovery.</p>
                                         </>
                                     ) : (
-                                        <p className="text-sm text-green-200">
+                                        <div className="text-sm text-green-200">
                                             ✅ Recovery guardian: <strong>{guardianEmail}</strong>
                                             <br />
                                             <span className="text-xs break-all font-mono text-gray-300">{guardianAddress ?? 'creating embedded wallet…'}</span>
-                                        </p>
+                                            <br />
+                                            <button
+                                                onClick={() => privyLogout()}
+                                                className="mt-2 text-xs underline text-amber-300 hover:text-amber-200"
+                                            >
+                                                Disconnect Google (create WITHOUT recovery — to test enable-from-settings)
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
 
@@ -279,16 +286,16 @@ function PasskeyRegistrationInner() {
                                 )}
                                 <button
                                     onClick={handleRegister}
-                                    disabled={loading || !reservationToken || !guardianAddress}
+                                    disabled={loading || !reservationToken || (authenticated && !guardianAddress)}
                                     className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {loading
                                         ? 'Creating Passkey...'
-                                        : !authenticated
-                                            ? 'Sign in with Google first'
-                                            : !guardianAddress
-                                                ? 'Waiting for guardian…'
-                                                : '🔐 Create Passkey'}
+                                        : authenticated && !guardianAddress
+                                            ? 'Waiting for guardian…'
+                                            : authenticated
+                                                ? '🔐 Create Passkey (with recovery)'
+                                                : '🔐 Create Passkey (NO recovery)'}
                                 </button>
                             </div>
 
