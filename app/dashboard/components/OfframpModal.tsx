@@ -832,18 +832,28 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken }: Of
                                 </p>
                             </div>
 
-                            {rate && (
-                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                                    <p className="text-sm text-emerald-800">
-                                        Rate: <strong>1 {token.symbol} ≈ {rate.exchangeRate || rate.rate} {destCurrency}</strong>
-                                    </p>
-                                    {rate.destinationAmount && (
-                                        <p className="text-sm text-emerald-800 mt-1">
-                                            You receive: <strong>≈ {rate.destinationAmount} {destCurrency}</strong>
+                            {rate && (() => {
+                                // Walapay's rate response uses midMarketRate + calculatedAmount.destinationAmount.
+                                const rateVal = rate.midMarketRate ?? rate.exchangeRate ?? rate.rate;
+                                const recv = rate.calculatedAmount?.destinationAmount ?? rate.destinationAmount;
+                                const fee = rate.calculatedAmount?.totalFeeInSourceCurrency;
+                                const fmtN = (n: any) => (n != null ? Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }) : null);
+                                return (
+                                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-1">
+                                        <p className="text-sm text-emerald-800">
+                                            Rate: <strong>1 {token.symbol} ≈ {fmtN(rateVal) ?? '—'} {destCurrency}</strong>
                                         </p>
-                                    )}
-                                </div>
-                            )}
+                                        {recv != null && (
+                                            <p className="text-sm text-emerald-800">
+                                                You receive: <strong>≈ {fmtN(recv)} {destCurrency}</strong>
+                                            </p>
+                                        )}
+                                        {fee != null && (
+                                            <p className="text-xs text-emerald-700">Total fee: {fmtN(fee)} {token.symbol}</p>
+                                        )}
+                                    </div>
+                                );
+                            })()}
 
                             <div className="flex gap-3">
                                 <button onClick={() => setStep('add-bank')}
@@ -977,7 +987,10 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken }: Of
                                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Transaction Details</p>
                                     <DetailRow label="Transaction ID" value={short(payment?.walapayPaymentId)} />
                                     <DetailRow label="You Send" value={`${fmt(payment?.sourceAmount)} ${payment?.sourceCurrency || ''}`} />
-                                    <DetailRow label="Rate" value={payment?.exchangeRate ? `1 ${payment?.sourceCurrency} ≈ ${fmt(payment?.exchangeRate)} ${payment?.destinationCurrency}` : '—'} />
+                                    <DetailRow label="Rate" value={(() => {
+                                        const r = payment?.exchangeRate ?? (payment?.destinationAmount && payment?.sourceAmount ? payment.destinationAmount / payment.sourceAmount : null);
+                                        return r ? `1 ${payment?.sourceCurrency} ≈ ${fmt(r)} ${payment?.destinationCurrency}` : '—';
+                                    })()} />
                                     <DetailRow label="Fee" value={payment?.feeAmount != null ? `${fmt(payment?.feeAmount)} ${payment?.sourceCurrency}` : '—'} />
                                     <DetailRow label="Created" value={dt(payment?.createdAt)} />
                                     {done && <DetailRow label="Completed" value={dt(payment?.completedAt)} />}
