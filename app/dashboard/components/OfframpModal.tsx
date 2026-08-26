@@ -154,7 +154,12 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
 
     const sendOtp = wrap(async () => {
         const r = await call('/offramp/email/send-otp', { method: 'POST', json: { email } });
-        setDevCode(r?.devCode || ''); setStep('otp');
+        const dc = r?.devCode || '';
+        setDevCode(dc); setStep('otp');
+        // Email delivery isn't configured yet — surface the code so the flow is
+        // testable. The backend only returns devCode in non-prod when the email
+        // didn't send, so this alert disappears on its own once Resend is live.
+        if (dc) { setOtpCode(dc); alert(`Handle Pay verification code: ${dc}\n\n(Shown here because email delivery isn't set up — it will be emailed in production.)`); }
     });
     const verifyOtp = wrap(async () => {
         await call('/offramp/email/verify-otp', { method: 'POST', json: { code: otpCode } });
