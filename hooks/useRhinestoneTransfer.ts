@@ -720,33 +720,41 @@ export function useRhinestoneTransfer() {
                 signWith: 'money' | 'spot';
                 calls: { to: string; value: string; data: string }[];
                 tokenRequests: { address: string; amount: string }[];
+                sourceChainId?: number;
+                targetChainId?: number;
+                crossChain?: boolean;
             } = await prepareRes.json();
 
-            // Sign with the wallet the backend chose (spot for Base/USDC).
+            // Build the money/spot account and target the chain Walapay expects the
+            // deposit on (targetChainId; falls back to chainId for older responses).
             const account = await buildRhinestoneAccount(params.accessToken, prepare.signWith);
-            const chain = getChainById(prepare.chainId);
+            const targetChainId = prepare.targetChainId ?? prepare.chainId;
+            const chain = getChainById(targetChainId);
             const calls = prepare.calls.map((c) => ({
                 to: c.to as `0x${string}`,
                 value: BigInt(c.value),
                 data: c.data as Hex,
             }));
+            const tokenRequests = prepare.tokenRequests.map((t) => ({
+                address: t.address as `0x${string}`,
+                amount: BigInt(t.amount),
+            }));
 
-            // Same-chain funding — same branching as withdraw. Plasma routes through
-            // the intent path (tokenRequests); Base (the default) uses a sponsored
-            // direct user-op, so Rhinestone covers gas and no tokenRequests are sent.
             let intentId: string;
-            if (isPlasmaChain(prepare.chainId)) {
-                const txResult = await sendTx(account, {
-                    chain,
-                    calls,
-                    tokenRequests: prepare.tokenRequests.map((t) => ({
-                        address: t.address as `0x${string}`,
-                        amount: BigInt(t.amount),
-                    })),
-                });
-                await account.waitForExecution(txResult);
-                intentId = String((txResult as any).id);
+            if (prepare.crossChain) {
+                // Cross-chain (Money on BSC → Walapay's deposit on Base): go through
+                // the intent path WITH tokenRequests so the orchestrator sources the
+                // delivery token from the wallet's balances on any chain (bridging/
+                // swapping from the source chain). Sponsored so gas isn't taken from
+                // the token.
+                const txResult = await sendTx(account, { chain, calls, tokenRequests, sponsored: true });
+                const receipt = await account.waitForExecution(txResult);
+                intentId =
+                    toHexHash((receipt as any)?.transactionHash) ||
+                    String((txResult as any).id);
             } else {
+                // Same-chain (spot on Base/USDC): sponsored direct user-op, so
+                // Rhinestone covers gas and no tokenRequests are needed.
                 const txResult = await sendTx(account, { chain, calls, sponsored: true });
                 const receipt = await account.waitForExecution(txResult);
                 intentId =
