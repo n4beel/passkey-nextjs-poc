@@ -18,7 +18,19 @@ interface OfframpModalProps {
     accessToken: string;
 }
 
-type Step = 'check' | 'register' | 'kyc-pending' | 'add-bank' | 'payment' | 'funding' | 'success';
+type Step = 'check' | 'register' | 'kyc-pending' | 'add-bank' | 'payment' | 'funding' | 'status' | 'success';
+
+const TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'REFUNDED', 'EXPIRED', 'CANCELLED'];
+
+/** One label/value row in the transaction-details block. */
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+    return (
+        <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-500">{label}</span>
+            <span className="text-slate-900 font-medium text-right break-all">{value}</span>
+        </div>
+    );
+}
 
 const SUPPORTED_RAILS: Record<string, string> = {
     'svm': 'SOLANA',
@@ -48,6 +60,8 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken }: Of
     const [fundHash, setFundHash] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    // Live payment record (polled on the status screen).
+    const [payment, setPayment] = useState<any>(null);
 
     // Customer registration
     const [kycLink, setKycLink] = useState('');
@@ -405,12 +419,34 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken }: Of
         try {
             const res = await fundOfframpViaBackend({ accessToken, paymentId });
             setFundHash(res.hash);
+            // Move to the live status screen — it polls until the payout settles.
+            setStep('status');
         } catch (err: any) {
             setError(err.message || 'Funding failed');
         } finally {
             setLoading(false);
         }
     };
+
+    // Poll the payment on the status screen until it reaches a terminal state, so
+    // the UI animates on-its-way → complete (or failed) like the mobile designs.
+    useEffect(() => {
+        if (step !== 'status' || !paymentId) return;
+        let active = true;
+        const poll = async () => {
+            try {
+                const res = await signedFetch(`/offramp/payment/${paymentId}`, { auth: true });
+                if (res.ok && active) {
+                    const p = await res.json();
+                    setPayment(p);
+                    if (TERMINAL_STATUSES.includes(String(p.status || '').toUpperCase())) return;
+                }
+            } catch { /* keep polling */ }
+            if (active) setTimeout(poll, 2000);
+        };
+        poll();
+        return () => { active = false; };
+    }, [step, paymentId]);
 
     if (!isOpen || !token) return null;
 
@@ -898,6 +934,73 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken }: Of
                             </button>
                         </div>
                     )}
+
+                    {/* Live withdrawal status (on its way → complete / failed) */}
+                    {step === 'status' && (() => {
+                        const st = String(payment?.status || 'PENDING').toUpperCase();
+                        const done = st === 'COMPLETED';
+                        const failed = ['FAILED', 'EXPIRED', 'REFUNDED', 'CANCELLED'].includes(st);
+                        const pending = !done && !failed;
+                        const fmt = (n: any) => (n != null && n !== '' ? Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—');
+                        const short = (s: any) => (s ? `${String(s).slice(0, 8)}…${String(s).slice(-6)}` : '—');
+                        const dt = (d: any) => (d ? new Date(d).toLocaleString() : '—');
+                        return (
+                            <div className="space-y-5">
+                                <div className="text-center space-y-3">
+                                    <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${done ? 'bg-emerald-100' : failed ? 'bg-red-100' : 'bg-amber-100'}`}>
+                                        {done ? (
+                                            <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                        ) : failed ? (
+                                            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        ) : (
+                                            <svg className="w-8 h-8 text-amber-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        )}
+                                    </div>
+                                    <h3 className="text-xl font-bold text-slate-900">
+                                        {done ? 'Withdrawal Complete' : failed ? 'Withdrawal Failed' : 'Your withdrawal is on its way'}
+                                    </h3>
+                                </div>
+
+                                {/* Amount ticket */}
+                                <div className="bg-slate-900 text-white rounded-2xl p-5 text-center">
+                                    <p className="text-xs text-slate-400 mb-1">{done ? 'Amount Delivered' : 'Amount Received'}</p>
+                                    <p className="text-3xl font-bold tracking-tight">
+                                        {fmt(payment?.destinationAmount)} <span className="text-lg font-semibold text-slate-300">{payment?.destinationCurrency}</span>
+                                    </p>
+                                    <div className="border-t border-dashed border-slate-700 my-3" />
+                                    <p className="text-[11px] text-slate-400">Bank destination</p>
+                                    <p className="text-sm font-medium">{payment?.destinationRail || 'Bank'} · {short(payment?.destinationAccountId)}</p>
+                                </div>
+
+                                {/* Transaction details */}
+                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-sm">
+                                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Transaction Details</p>
+                                    <DetailRow label="Transaction ID" value={short(payment?.walapayPaymentId)} />
+                                    <DetailRow label="You Send" value={`${fmt(payment?.sourceAmount)} ${payment?.sourceCurrency || ''}`} />
+                                    <DetailRow label="Rate" value={payment?.exchangeRate ? `1 ${payment?.sourceCurrency} ≈ ${fmt(payment?.exchangeRate)} ${payment?.destinationCurrency}` : '—'} />
+                                    <DetailRow label="Fee" value={payment?.feeAmount != null ? `${fmt(payment?.feeAmount)} ${payment?.sourceCurrency}` : '—'} />
+                                    <DetailRow label="Created" value={dt(payment?.createdAt)} />
+                                    {done && <DetailRow label="Completed" value={dt(payment?.completedAt)} />}
+                                </div>
+
+                                {pending && (
+                                    <p className="text-xs text-amber-700 text-center bg-amber-50 rounded-lg py-2 px-3">
+                                        ⏳ Processing your withdrawal — usually completes within a few minutes.
+                                    </p>
+                                )}
+                                {failed && (
+                                    <p className="text-xs text-red-600 text-center bg-red-50 rounded-lg py-2 px-3">
+                                        Bank temporarily unavailable — funds returned to your Money Wallet.
+                                    </p>
+                                )}
+
+                                <button onClick={handleClose}
+                                    className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold transition">
+                                    {pending ? 'Back to Home' : 'Done'}
+                                </button>
+                            </div>
+                        );
+                    })()}
                 </div>
             </div>
         </div>
