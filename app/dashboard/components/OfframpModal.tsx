@@ -16,6 +16,8 @@ interface OfframpModalProps {
         type: 'evm' | 'svm';
     } | null;
     accessToken: string;
+    /** Deep-link: open straight to the live status of this existing payment. */
+    initialPaymentId?: string;
 }
 
 type Step = 'check' | 'register' | 'kyc-pending' | 'add-bank' | 'payment' | 'funding' | 'status' | 'success';
@@ -54,7 +56,7 @@ const DEST_RAIL_MAP: Record<string, string> = {
 
 const getDestRail = (currency: string) => DEST_RAIL_MAP[currency] || 'LOCAL';
 
-export default function OfframpModal({ isOpen, onClose, token, accessToken }: OfframpModalProps) {
+export default function OfframpModal({ isOpen, onClose, token, accessToken, initialPaymentId }: OfframpModalProps) {
     const { fundOfframpViaBackend } = useRhinestoneTransfer();
     const [step, setStep] = useState<Step>('check');
     const [fundHash, setFundHash] = useState('');
@@ -132,10 +134,15 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken }: Of
     const [paymentId, setPaymentId] = useState('');
 
     useEffect(() => {
-        if (isOpen && token) {
+        if (!isOpen) return;
+        if (initialPaymentId) {
+            // Deep-link (shareable status URL): jump straight to the live status.
+            setPaymentId(initialPaymentId);
+            setStep('status');
+        } else if (token) {
             checkCustomerStatus();
         }
-    }, [isOpen]);
+    }, [isOpen, initialPaymentId]);
 
     const resetState = () => {
         setStep('check');
