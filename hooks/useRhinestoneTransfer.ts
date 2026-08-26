@@ -723,7 +723,23 @@ export function useRhinestoneTransfer() {
                 sourceChainId?: number;
                 targetChainId?: number;
                 crossChain?: boolean;
+                demo?: boolean;
             } = await prepareRes.json();
+
+            // DEMO / SANDBOX mode: the backend simulates funding + settlement (no
+            // on-chain send, no passkey signature) so the whole flow completes for
+            // demos. Flip demoMode off (production) for the real cross-chain funding.
+            if (prepare.demo) {
+                const simRes = await signedFetch(
+                    `/offramp/payment/${params.paymentId}/fund/simulate`,
+                    { method: 'POST', auth: true, headers: { 'ngrok-skip-browser-warning': 'true' } },
+                );
+                if (!simRes.ok) {
+                    throw new Error(`Simulate failed: ${simRes.status} ${await simRes.text()}`);
+                }
+                const sim = await simRes.json();
+                return { hash: sim.fundingTxHash || sim.hash || 'demo' };
+            }
 
             // Build the money/spot account and target the chain Walapay expects the
             // deposit on (targetChainId; falls back to chainId for older responses).
