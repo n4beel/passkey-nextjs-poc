@@ -985,14 +985,18 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken }: Of
                                 {/* Transaction details */}
                                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-sm">
                                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Transaction Details</p>
-                                    <DetailRow label="Transaction ID" value={short(payment?.walapayPaymentId)} />
+                                    <DetailRow label="Transaction ID" value={<span className="font-mono text-xs">{payment?.walapayPaymentId || '—'}</span>} />
+                                    <DetailRow label="Status" value={<span className={`font-semibold ${done ? 'text-emerald-600' : failed ? 'text-red-600' : 'text-amber-600'}`}>{st.charAt(0) + st.slice(1).toLowerCase()}</span>} />
+                                    <DetailRow label="Payment Type" value={payment?.paymentType || 'External'} />
+                                    <DetailRow label="Date Created" value={dt(payment?.createdAt)} />
                                     <DetailRow label="You Send" value={`${fmt(payment?.sourceAmount)} ${payment?.sourceCurrency || ''}`} />
-                                    <DetailRow label="Rate" value={(() => {
+                                    <DetailRow label="Exchange Rate" value={(() => {
                                         const r = payment?.exchangeRate ?? (payment?.destinationAmount && payment?.sourceAmount ? payment.destinationAmount / payment.sourceAmount : null);
-                                        return r ? `1 ${payment?.sourceCurrency} ≈ ${fmt(r)} ${payment?.destinationCurrency}` : '—';
+                                        return r ? `1 ${payment?.sourceCurrency} = ${fmt(r)} ${payment?.destinationCurrency}` : '—';
                                     })()} />
                                     <DetailRow label="Fee" value={payment?.feeAmount != null ? `${fmt(payment?.feeAmount)} ${payment?.sourceCurrency}` : '—'} />
-                                    <DetailRow label="Created" value={dt(payment?.createdAt)} />
+                                    <DetailRow label="Payment Reason" value={payment?.paymentReason ? String(payment.paymentReason).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : '—'} />
+                                    {payment?.comment && <DetailRow label="Comment" value={payment.comment} />}
                                     {done && <DetailRow label="Completed" value={dt(payment?.completedAt)} />}
                                 </div>
 
