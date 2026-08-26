@@ -449,7 +449,7 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
                     if (TERMINAL_STATUSES.includes(String(p.status || '').toUpperCase())) return;
                 }
             } catch { /* keep polling */ }
-            if (active) setTimeout(poll, 2000);
+            if (active) setTimeout(poll, 4000);
         };
         poll();
         return () => { active = false; };
