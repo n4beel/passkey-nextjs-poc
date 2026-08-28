@@ -104,6 +104,13 @@ async function handler(
             try {
                 const body = await req.json();
 
+                // Proof capture: log the outbound orchestrator request so we can pair
+                // it with the response — shows the route params + whether the intent
+                // requested sponsorship (settlement/fee config).
+                console.log(
+                    `[orchestrator REQ] ${req.method} /${pathStr} BODY=${JSON.stringify(body).slice(0, 20000)}`,
+                );
+
                 // Validate intent operations
                 if (pathStr.includes('intent-operations')) {
                     if (!validateDestinationOps(body)) {

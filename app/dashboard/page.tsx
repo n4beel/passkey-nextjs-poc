@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import TransferModal from './components/TransferModal';
 import OfframpModal from './components/OfframpModal';
@@ -140,6 +140,10 @@ function ActivityAvatar({
 
 export default function DashboardPage() {
     const router = useRouter();
+    // Consecutive 401s from the background dashboard poll before we treat the
+    // session as truly dead. A single transient 401 (stale request signature, a
+    // backgrounded tab during KYC) must NOT log the user out mid-flow.
+    const auth401Count = useRef(0);
     const [spotPortfolio, setSpotPortfolio] = useState<Portfolio | null>(null);
     const [moneyPortfolio, setMoneyPortfolio] = useState<Portfolio | null>(null);
     const [loading, setLoading] = useState(true);
@@ -245,11 +249,16 @@ export default function DashboardPage() {
                 { auth: true },
             );
             if (res.status === 401) {
-                localStorage.removeItem('accessToken');
-                router.push('/');
+                // Only log out after repeated 401s — a lone transient one (stale
+                // signature, blip while backgrounded) must not nuke the session.
+                if (++auth401Count.current >= 3) {
+                    localStorage.removeItem('accessToken');
+                    router.push('/');
+                }
                 return;
             }
             if (res.ok) {
+                auth401Count.current = 0;
                 const d = await res.json();
                 setMoneyPortfolio((prev) => ({
                     totalUsd: d.wallets.money.usd,

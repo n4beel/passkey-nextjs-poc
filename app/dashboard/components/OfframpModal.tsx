@@ -76,6 +76,8 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
     const [cddQ, setCddQ] = useState(0);
     const [kycStatus, setKycStatus] = useState('');
     const [kycLink, setKycLink] = useState('');
+    // Customer-facing rejection reasons from GET /offramp/customer/status (string[]).
+    const [submissionIssues, setSubmissionIssues] = useState<string[]>([]);
 
     // Withdrawal
     const [amount, setAmount] = useState('');
@@ -91,6 +93,8 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
     const call = useCallback(async (path: string, opts: any = {}) => {
         const res = await signedFetch(path, { auth: true, ...opts });
         const data = await res.json().catch(() => ({}));
+        // Full API visibility for testing — every off-ramp request+response in the console.
+        console.log(`[offramp API] ${opts.method || 'GET'} ${path} → ${res.status}`, data);
         if (!res.ok) throw new Error(data?.message || `${path} failed (${res.status})`);
         return data;
     }, []);
@@ -183,17 +187,29 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
             } catch (e: any) { setError(e.message); } finally { setLoading(false); }
         })();
     };
-    const startKyc = wrap(async () => {
-        // register the Walapay customer (hosted KYC) if not already, then open the link
-        let link = kycLink;
-        if (!eligibility?.kycStatus || eligibility.kycStatus === 'NOT_STARTED' || !link) {
+    // Fetch the hosted-KYC URL. Registering the Walapay customer is idempotent — it
+    // returns the existing customer + link if already registered. We deliberately do
+    // NOT window.open() here: a popup opened after an await is blocked by the browser
+    // (no longer inside the click gesture), so the link is rendered as a real <a> the
+    // user taps directly instead.
+    const ensureKycLink = useCallback(async () => {
+        setError('');
+        try {
             const r = await call('/offramp/customer', { method: 'POST', json: { email: email || eligibility?.email } });
-            link = r?.kycLink || r?.kycUrl || '';
-            setKycStatus(r?.status || 'NOT_STARTED');
-        }
-        setKycLink(link);
-        if (link) window.open(link, '_blank', 'noopener');
-    });
+            setKycLink(r?.kycLink || r?.kycUrl || '');
+            if (r?.status) setKycStatus(r.status);
+        } catch (e: any) { setError(e.message); }
+    }, [call, email, eligibility]);
+
+    // On entering the KYC step, pre-fetch the hosted link so the button is a ready
+    // anchor. Skip once approved (nothing to open).
+    useEffect(() => {
+        if (step !== 'kyc') return;
+        const st = String(kycStatus || eligibility?.kycStatus || '').toUpperCase();
+        if (!kycLink && st !== 'APPROVED') ensureKycLink();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [step]);
+
     // poll KYC status while on the kyc step
     useEffect(() => {
         if (step !== 'kyc') return;
@@ -203,6 +219,7 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
                 const s = await call('/offramp/customer/status');
                 if (!active) return;
                 setKycStatus(s?.status || ''); if (s?.kycLink) setKycLink(s.kycLink);
+                setSubmissionIssues(Array.isArray(s?.submissionIssues) ? s.submissionIssues : []);
                 if (String(s?.status).toUpperCase() === 'APPROVED') { setStep('amount'); return; }
             } catch { /* keep polling */ }
             if (active) setTimeout(poll, 5000);
@@ -216,6 +233,17 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
         setBanks(Array.isArray(list) ? list : []);
         if (Array.isArray(list) && list.length && !selectedBankId) setSelectedBankId(String(list[0].id));
     });
+    // Remove a saved payout account (deletes in Walapay + locally), then refresh.
+    const deleteBank = async (id: string) => {
+        if (!confirm('Remove this bank account?')) return;
+        setLoading(true); setError('');
+        try {
+            await call(`/offramp/bank-account/${id}`, { method: 'DELETE' });
+            setSelectedBankId((cur) => (cur === id ? '' : cur));
+            const list = await call('/offramp/bank-accounts');
+            setBanks(Array.isArray(list) ? list : []);
+        } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+    };
     const addBank = wrap(async () => {
         const addr = { streetLine1: '—', city: 'Karachi', stateRegionOrProvince: 'Sindh', postalCode: '74000', countryCode: 'PK' };
         const r = await call('/offramp/bank-account', { method: 'POST', json: {
@@ -227,13 +255,26 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
         const list = await call('/offramp/bank-accounts'); setBanks(Array.isArray(list) ? list : []);
     });
     const confirmWithdraw = wrap(async () => {
-        const created = await call('/offramp/payment', { method: 'POST', json: {
-            sourceCurrency: SOURCE_CURRENCY, amount: parseFloat(amount), sourceRail: SOURCE_RAIL,
-            fromAddress: token?.address, destinationCurrency: DEST_CURRENCY, destinationRail: DEST_RAIL,
-            destinationAccountId: selectedBankId, paymentReason: purpose,
-        } });
-        setPaymentId(created.id);
-        await fundOfframpViaBackend({ accessToken, paymentId: created.id });
+        // Create the Walapay payment ONCE. If a prior funding attempt failed (passkey
+        // cancel, insufficient balance, bridge hiccup), reuse the same payment so a
+        // retry re-funds it instead of spawning a duplicate payment on Walapay.
+        let pid = paymentId;
+        if (!pid) {
+            const created = await call('/offramp/payment', { method: 'POST', json: {
+                sourceCurrency: SOURCE_CURRENCY, amount: parseFloat(amount), sourceRail: SOURCE_RAIL,
+                fromAddress: token?.address, destinationCurrency: DEST_CURRENCY, destinationRail: DEST_RAIL,
+                destinationAccountId: selectedBankId, paymentReason: purpose,
+            } });
+            pid = created.id; setPaymentId(pid);
+        }
+        try {
+            await fundOfframpViaBackend({ accessToken, paymentId: pid });
+        } catch (e: any) {
+            // Payment can no longer be funded (expired/terminal) → drop it so the next
+            // slide creates a fresh one; otherwise keep it for a same-payment retry.
+            if (/no longer be funded|not found|expired/i.test(e?.message || '')) setPaymentId('');
+            throw e;
+        }
         setStep('status');
     });
 
@@ -312,13 +353,26 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
                                     {rejected ? '❌' : review ? '⏳' : '🪪'}
                                 </div>
                                 <h3 className="text-lg font-bold text-slate-900">{rejected ? 'Verification unsuccessful' : review ? 'Under review' : 'Verify your identity'}</h3>
-                                <p className="text-sm text-slate-500">{rejected ? "We couldn't verify your identity. Please try again." : review ? "A specialist is reviewing your details — usually within 24 hours. We'll update this automatically." : 'Verify once to unlock bank withdrawals. Opens a secure verification page.'}</p>
-                                {!review && (
-                                    <button onClick={startKyc} disabled={loading} className="w-full py-3 bg-slate-900 text-white rounded-lg font-semibold disabled:opacity-50">
-                                        {loading ? 'Starting…' : rejected ? 'Try again' : 'Continue verification'}
-                                    </button>
+                                <p className="text-sm text-slate-500">{rejected ? (submissionIssues.length ? 'Please fix the following and try again:' : "We couldn't verify your identity. Please try again.") : review ? "A specialist is reviewing your details — usually within 24 hours. We'll update this automatically." : 'Verify once to unlock bank withdrawals. Opens a secure verification page.'}</p>
+                                {rejected && submissionIssues.length > 0 && (
+                                    <ul className="text-left text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 space-y-1 list-disc list-inside">
+                                        {submissionIssues.map((issue, i) => (
+                                            <li key={i}>{issue}</li>
+                                        ))}
+                                    </ul>
                                 )}
-                                {kycLink && !review && <a href={kycLink} target="_blank" rel="noopener noreferrer" className="block text-sm text-emerald-600 underline">Open verification page</a>}
+                                {!review && kycLink && (
+                                    <>
+                                        <a href={kycLink} target="_blank" rel="noopener noreferrer"
+                                            className="block w-full py-3 bg-slate-900 text-white rounded-lg font-semibold">
+                                            {rejected ? 'Try again' : 'Continue verification'}
+                                        </a>
+                                        <p className="text-xs text-slate-400">Opens a secure page in a new tab. Finish there, then come back — this updates automatically.</p>
+                                    </>
+                                )}
+                                {!review && !kycLink && (
+                                    <button disabled className="w-full py-3 bg-slate-900 text-white rounded-lg font-semibold opacity-60">Preparing secure link…</button>
+                                )}
                                 {review && <p className="text-xs text-slate-400">Checking status…</p>}
                             </div>
                         );
@@ -347,10 +401,14 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
                             <button onClick={() => setShowAddBank(true)} className="w-full py-2.5 bg-emerald-50 text-emerald-700 rounded-lg font-medium border border-emerald-200">+ Add Bank Account</button>
                             {banks.length === 0 && <p className="text-sm text-slate-400 text-center py-4">No saved accounts — add one to continue.</p>}
                             {banks.map((b) => (
-                                <button key={b.id} onClick={() => setSelectedBankId(String(b.id))} className={`w-full text-left p-3 rounded-lg border ${selectedBankId === String(b.id) ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                                    <p className="font-medium text-slate-900">{b.accountHolder}</p>
-                                    <p className="text-xs text-slate-500">{b.bankName} · {b.currencyCode}</p>
-                                </button>
+                                <div key={b.id} className={`flex items-center gap-2 w-full p-3 rounded-lg border ${selectedBankId === String(b.id) ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                                    <button onClick={() => setSelectedBankId(String(b.id))} className="flex-1 text-left min-w-0">
+                                        <p className="font-medium text-slate-900 truncate">{b.accountHolder}</p>
+                                        <p className="text-xs text-slate-500 truncate">{b.bankName} · {b.currencyCode}{b.accountNumber ? ` · ${b.accountNumber}` : ''}</p>
+                                    </button>
+                                    <button onClick={() => deleteBank(String(b.id))} title="Remove account" aria-label="Remove bank account"
+                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg shrink-0" disabled={loading}>🗑</button>
+                                </div>
                             ))}
                             <button onClick={() => { setPurpose(config?.paymentPurposes?.[0]?.value || ''); setStep('kyt'); }} disabled={!selectedBankId} className="w-full py-3 bg-slate-900 text-white rounded-lg font-semibold disabled:opacity-50">Continue</button>
                         </div>

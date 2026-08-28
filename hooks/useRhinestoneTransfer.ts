@@ -726,6 +726,8 @@ export function useRhinestoneTransfer() {
                 demo?: boolean;
             } = await prepareRes.json();
 
+            console.log('[offramp] fund/prepare →', prepare);
+
             // DEMO / SANDBOX mode: the backend simulates funding + settlement (no
             // on-chain send, no passkey signature) so the whole flow completes for
             // demos. Flip demoMode off (production) for the real cross-chain funding.
@@ -756,27 +758,27 @@ export function useRhinestoneTransfer() {
                 amount: BigInt(t.amount),
             }));
 
-            let intentId: string;
-            if (prepare.crossChain) {
-                // Cross-chain (Money on BSC → Walapay's deposit on Base): go through
-                // the intent path WITH tokenRequests so the orchestrator sources the
-                // delivery token from the wallet's balances on any chain (bridging/
-                // swapping from the source chain). Sponsored so gas isn't taken from
-                // the token.
-                const txResult = await sendTx(account, { chain, calls, tokenRequests, sponsored: true });
-                const receipt = await account.waitForExecution(txResult);
-                intentId =
-                    toHexHash((receipt as any)?.transactionHash) ||
-                    String((txResult as any).id);
-            } else {
-                // Same-chain (spot on Base/USDC): sponsored direct user-op, so
-                // Rhinestone covers gas and no tokenRequests are needed.
-                const txResult = await sendTx(account, { chain, calls, sponsored: true });
-                const receipt = await account.waitForExecution(txResult);
-                intentId =
-                    toHexHash((receipt as any)?.transactionHash) ||
-                    String((txResult as any).id);
-            }
+            // Cross-chain (Money on BSC → Walapay's deposit on Base): pass BOTH
+            // `sourceChains` (where to PULL from) and `targetChain` (where to fill) —
+            // exactly like the working spot multi-source swap. Passing only `chain`
+            // (no sourceChains) makes the orchestrator resolve sourceChains: [] →
+            // "No viable route found". Same-chain (spot on Base/USDC) uses `chain`.
+            const txResult = prepare.crossChain
+                ? await sendTx(account, {
+                      sourceChains: [getChainById(prepare.sourceChainId ?? targetChainId)],
+                      targetChain: chain,
+                      calls,
+                      tokenRequests,
+                      sponsored: true,
+                  })
+                : await sendTx(account, { chain, calls, sponsored: true });
+            await account.waitForExecution(txResult);
+            // The intent id is a DECIMAL string — send it RAW so the backend can BigInt()
+            // it for pollIntentResult(). Do NOT send the tx hash: toHexHash(hash) is a
+            // valid-but-WRONG bigint and would poll a non-existent intent (fund/complete
+            // would then never resolve the settlement).
+            const intentId = String((txResult as any).id);
+            console.log('[offramp] intent submitted → intentId:', intentId, '| crossChain:', !!prepare.crossChain, '| targetChainId:', targetChainId);
 
             const completeRes = await signedFetch(
                 `/offramp/payment/${params.paymentId}/fund/complete`,
@@ -792,6 +794,7 @@ export function useRhinestoneTransfer() {
                 return { hash: intentId };
             }
             const done = await completeRes.json();
+            console.log('[offramp] fund/complete →', done);
             return { hash: done.fundingTxHash || done.hash || intentId };
         } catch (err: any) {
             const message = err.message || 'Off-ramp funding failed';
