@@ -75,9 +75,13 @@ export async function signedFetch(
 
     if (auth) {
         const token = getAccessToken();
-        if (token) {
-            requestHeaders.set('Authorization', `Bearer ${token}`);
+        if (!token) {
+            // Never fire an auth-required request unauthenticated — the backend
+            // would 401 and the failure would be silent/confusing (this is what let
+            // the add-bank POST fail after a mid-flow logout). Fail loudly instead.
+            throw new Error('Your session has expired. Please log in again.');
         }
+        requestHeaders.set('Authorization', `Bearer ${token}`);
     }
 
     if (json !== undefined) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import TransferModal from './components/TransferModal';
 import OfframpModal from './components/OfframpModal';
@@ -140,6 +140,10 @@ function ActivityAvatar({
 
 export default function DashboardPage() {
     const router = useRouter();
+    // Consecutive 401s from the background dashboard poll before we treat the
+    // session as truly dead. A single transient 401 (stale request signature, a
+    // backgrounded tab during KYC) must NOT log the user out mid-flow.
+    const auth401Count = useRef(0);
     const [spotPortfolio, setSpotPortfolio] = useState<Portfolio | null>(null);
     const [moneyPortfolio, setMoneyPortfolio] = useState<Portfolio | null>(null);
     const [loading, setLoading] = useState(true);
@@ -245,11 +249,16 @@ export default function DashboardPage() {
                 { auth: true },
             );
             if (res.status === 401) {
-                localStorage.removeItem('accessToken');
-                router.push('/');
+                // Only log out after repeated 401s — a lone transient one (stale
+                // signature, blip while backgrounded) must not nuke the session.
+                if (++auth401Count.current >= 3) {
+                    localStorage.removeItem('accessToken');
+                    router.push('/');
+                }
                 return;
             }
             if (res.ok) {
+                auth401Count.current = 0;
                 const d = await res.json();
                 setMoneyPortfolio((prev) => ({
                     totalUsd: d.wallets.money.usd,
@@ -890,6 +899,32 @@ export default function DashboardPage() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 9v1m0-1c-1.11 0-2.08-.402-2.599-1" />
                                 </svg>
                                 Get Paid
+                            </button>
+                        )}
+                        {activeWallet === 'money' && (
+                            <button
+                                onClick={() => {
+                                    // Money-mode off-ramp: source USDC on Base (Walapay's
+                                    // rail) from the Money wallet address. The backend sees
+                                    // this fromAddress is the Money (BSC) wallet and funds it
+                                    // cross-chain (bridges BSC USDT -> Base USDC).
+                                    setSelectedOfframpToken({
+                                        symbol: 'USDC',
+                                        name: 'Money Wallet',
+                                        balance: moneyPortfolio?.totalUsd || '0',
+                                        address: walletAddresses.moneyEvm,
+                                        chainId: 8453,
+                                        type: 'evm',
+                                    });
+                                    setIsOfframpModalOpen(true);
+                                }}
+                                disabled={!walletAddresses.moneyEvm}
+                                className="px-4 py-3 text-sm font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-40 transition flex items-center gap-1.5 border-b-2 border-transparent"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                                </svg>
+                                Withdraw to Bank
                             </button>
                         )}
                         <button
