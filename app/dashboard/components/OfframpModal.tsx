@@ -70,6 +70,8 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
     const [eligibility, setEligibility] = useState<any>(null);
     const [config, setConfig] = useState<any>(null);
     const [email, setEmail] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
     const [otpCode, setOtpCode] = useState('');
     const [devCode, setDevCode] = useState('');
     const [cdd, setCdd] = useState<Record<string, string>>({});
@@ -117,6 +119,7 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
             try {
                 const [el, cfg] = await Promise.all([call('/offramp/eligibility'), call('/offramp/config')]);
                 setEligibility(el); setConfig(cfg); setEmail(el?.email || '');
+                setFirstName(el?.firstName || ''); setLastName(el?.lastName || '');
                 routeFromEligibility(el);
             } catch (e: any) { setError(e.message); } finally { setLoading(false); }
         })();
@@ -157,7 +160,7 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
     };
 
     const sendOtp = wrap(async () => {
-        const r = await call('/offramp/email/send-otp', { method: 'POST', json: { email } });
+        const r = await call('/offramp/email/send-otp', { method: 'POST', json: { email, firstName: firstName.trim(), lastName: lastName.trim() } });
         const dc = r?.devCode || '';
         setDevCode(dc); setStep('otp');
         // Email delivery isn't configured yet — surface the code so the flow is
@@ -303,9 +306,13 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
                     {/* ── CDD: email ── */}
                     {step === 'email' && (
                         <div className="space-y-4">
-                            <div className="text-center"><h3 className="text-lg font-bold text-slate-900">Verify a way to reach you</h3><p className="text-sm text-slate-500 mt-1">One-time — used to verify it's you. Withdraw to your bank anytime after.</p></div>
+                            <div className="text-center"><h3 className="text-lg font-bold text-slate-900">Tell us who you are</h3><p className="text-sm text-slate-500 mt-1">One-time — your legal name and a way to reach you. Withdraw to your bank anytime after.</p></div>
+                            <div className="flex gap-3">
+                                <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" className="w-1/2 px-4 py-3 border border-slate-300 rounded-lg" />
+                                <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" className="w-1/2 px-4 py-3 border border-slate-300 rounded-lg" />
+                            </div>
                             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" className="w-full px-4 py-3 border border-slate-300 rounded-lg" />
-                            <button onClick={sendOtp} disabled={loading || !email} className="w-full py-3 bg-slate-900 text-white rounded-lg font-semibold disabled:opacity-50">{loading ? 'Sending…' : 'Continue'}</button>
+                            <button onClick={sendOtp} disabled={loading || !email || !firstName.trim() || !lastName.trim()} className="w-full py-3 bg-slate-900 text-white rounded-lg font-semibold disabled:opacity-50">{loading ? 'Sending…' : 'Continue'}</button>
                         </div>
                     )}
 
@@ -398,7 +405,7 @@ export default function OfframpModal({ isOpen, onClose, token, accessToken, init
                         <div className="space-y-3">
                             <h3 className="text-lg font-bold text-slate-900">Select bank account</h3>
                             <p className="text-xs text-slate-500">Sending ≈ {fmtN(recv)} {DEST_CURRENCY}</p>
-                            <button onClick={() => setShowAddBank(true)} className="w-full py-2.5 bg-emerald-50 text-emerald-700 rounded-lg font-medium border border-emerald-200">+ Add Bank Account</button>
+                            <button onClick={() => { setBankForm((f) => ({ ...f, firstName: f.firstName || firstName, lastName: f.lastName || lastName })); setShowAddBank(true); }} className="w-full py-2.5 bg-emerald-50 text-emerald-700 rounded-lg font-medium border border-emerald-200">+ Add Bank Account</button>
                             {banks.length === 0 && <p className="text-sm text-slate-400 text-center py-4">No saved accounts — add one to continue.</p>}
                             {banks.map((b) => (
                                 <div key={b.id} className={`flex items-center gap-2 w-full p-3 rounded-lg border ${selectedBankId === String(b.id) ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
