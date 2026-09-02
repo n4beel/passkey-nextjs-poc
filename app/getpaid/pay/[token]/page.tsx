@@ -25,6 +25,7 @@ type PayCtx = {
     status: string;
     payable: boolean;
     checkoutUrl?: string;
+    invoiceUrl?: string;
     quote?: {
         netReceiveAmount?: string;
         feeTotalUsd?: string;
@@ -71,8 +72,8 @@ function PayInner() {
             if (!res.ok) throw new Error((await res.json()).message || 'Link not found');
             const data: PayCtx = await res.json();
             setCtx(data);
-        } catch (e: any) {
-            setError(e.message);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Something went wrong');
         } finally {
             setLoading(false);
         }
@@ -151,6 +152,10 @@ function PayInner() {
                 )}
 
                 {error && <p className="text-sm text-red-400 text-center">{error}</p>}
+
+                {ctx.invoiceUrl && (
+                    <a href={ctx.invoiceUrl} target="_blank" rel="noreferrer" className="block text-center text-xs text-slate-400 underline">Download invoice ↓</a>
+                )}
 
                 {!terminal && (
                     <button onClick={load} className="w-full text-xs text-slate-400 underline">Refresh status</button>
