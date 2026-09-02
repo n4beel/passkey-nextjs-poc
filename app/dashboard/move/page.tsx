@@ -8,8 +8,8 @@ import { getExplorerTxUrl } from '@/lib/explorer';
 type Direction = 'money-to-spot' | 'spot-to-money';
 
 /**
- * Isolated test screen for Move — shift USDT0 between the user's Money and Spot
- * wallets (same-chain Plasma, 0.1% fee deducted).
+ * Isolated test screen for Move — shift USDC between the user's Money and Spot
+ * wallets (same-chain BSC, 0.1% fee deducted).
  */
 export default function MovePage() {
     const router = useRouter();
@@ -49,7 +49,7 @@ export default function MovePage() {
 
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                     <h1 className="text-xl font-bold text-slate-900">Move</h1>
-                    <p className="text-sm text-slate-500 mt-1">USDT0 between Money ↔ Spot · Plasma · 0.1% fee deducted</p>
+                    <p className="text-sm text-slate-500 mt-1">USDC between Money ↔ Spot · BSC · 0.1% fee deducted</p>
 
                     <div className="grid grid-cols-2 gap-2 mt-6">
                         {(['money-to-spot', 'spot-to-money'] as Direction[]).map((d) => (
@@ -65,7 +65,7 @@ export default function MovePage() {
                         ))}
                     </div>
 
-                    <label className="block text-sm font-medium text-slate-700 mt-4 mb-1">Amount (USDT0)</label>
+                    <label className="block text-sm font-medium text-slate-700 mt-4 mb-1">Amount (USDC)</label>
                     <input
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}

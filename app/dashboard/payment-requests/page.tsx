@@ -92,7 +92,7 @@ export default function PaymentRequestsPage() {
     const [createNote, setCreateNote] = useState('');
     const [createChainId, setCreateChainId] = useState(9745);
     const [createChainType, setCreateChainType] = useState<'evm' | 'svm'>('evm');
-    const [createTokenSymbol, setCreateTokenSymbol] = useState('USDT0');
+    const [createTokenSymbol, setCreateTokenSymbol] = useState('USDC');
     const [createTokenAddress, setCreateTokenAddress] = useState('0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359');
     const [createTokenDecimals, setCreateTokenDecimals] = useState(6);
     const [creating, setCreating] = useState(false);
@@ -528,14 +528,14 @@ export default function PaymentRequestsPage() {
                                         onChange={(e) => {
                                             setCreateTokenSymbol(e.target.value);
                                             // Update address based on selection
-                                            if (e.target.value === 'USDT0') {
+                                            if (e.target.value === 'USDC') {
                                                 setCreateTokenAddress('0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359');
                                                 setCreateTokenDecimals(6);
                                             }
                                         }}
                                         className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
                                     >
-                                        <option value="USDT0">USDT0</option>
+                                        <option value="USDC">USDC</option>
                                     </select>
                                 </div>
                             </div>

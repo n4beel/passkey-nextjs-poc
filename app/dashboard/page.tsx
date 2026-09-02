@@ -368,7 +368,7 @@ export default function DashboardPage() {
         },
         money: {
             label: '🏦 Money Wallet',
-            subtitle: 'Spendable stables — USDT0 on Plasma',
+            subtitle: 'Spendable stables — USDC on BSC',
             gradient: 'from-emerald-600 to-teal-600',
             accentBorder: 'border-emerald-500',
             tabActive: 'border-emerald-600 text-emerald-600',
@@ -563,7 +563,7 @@ export default function DashboardPage() {
                                             <CopyButton address={walletAddresses.moneyEvm} id="money-evm-copy" />
                                         </div>
                                     )}
-                                    <p className="text-xs text-slate-400 italic px-3">Plasma network · USDT0 target</p>
+                                    <p className="text-xs text-slate-400 italic px-3">BSC network · USDC target</p>
 
                                     {/* Auto-Deposits Registration */}
                                     <div className="mt-3 p-4 bg-emerald-50 rounded-lg border border-emerald-200">
@@ -572,7 +572,7 @@ export default function DashboardPage() {
                                                 <span className="text-emerald-600 text-lg">✅</span>
                                                 <div>
                                                     <p className="text-sm font-semibold text-emerald-800">Auto-Deposits Enabled</p>
-                                                    <p className="text-xs text-emerald-600">Stablecoins sent to your address on any chain will auto-bridge to USDT0 on Plasma</p>
+                                                    <p className="text-xs text-emerald-600">Stablecoins sent to your address on any chain will auto-bridge to USDC on BSC</p>
                                                 </div>
                                             </div>
                                         ) : (
@@ -580,7 +580,7 @@ export default function DashboardPage() {
                                                 <div className="flex items-center justify-between">
                                                     <div>
                                                         <p className="text-sm font-semibold text-emerald-800">Enable Auto-Deposits</p>
-                                                        <p className="text-xs text-emerald-600">Auto-bridge USDC/USDT from any chain to USDT0 on Plasma</p>
+                                                        <p className="text-xs text-emerald-600">Auto-bridge USDC/USDT from any chain to USDC on BSC</p>
                                                     </div>
                                                     <button
                                                         onClick={async () => {
@@ -772,7 +772,7 @@ export default function DashboardPage() {
                                                 <span className="text-indigo-600">🧹</span>
                                                 <div>
                                                     <p className="text-sm font-semibold text-indigo-800">Auto-Sweep Enabled</p>
-                                                    <p className="text-xs text-indigo-600">Tokens that can’t bridge to USDT0 (e.g. DAI, WETH) auto-move to your Spot wallet</p>
+                                                    <p className="text-xs text-indigo-600">Tokens that can’t bridge to USDC (e.g. DAI, WETH) auto-move to your Spot wallet</p>
                                                 </div>
                                             </div>
                                         ) : (
@@ -830,7 +830,7 @@ export default function DashboardPage() {
                                                 <div>
                                                     <code className="text-sm text-slate-600 font-mono">{walletAddresses.moneySvm.slice(0, 8)}...{walletAddresses.moneySvm.slice(-6)}</code>
                                                     {depositRegistered && (
-                                                        <p className="text-xs text-emerald-600 mt-0.5">Send SOL/USDC here → auto-bridges to USDT0 on Plasma</p>
+                                                        <p className="text-xs text-emerald-600 mt-0.5">Send SOL/USDC here → auto-bridges to USDC on BSC</p>
                                                     )}
                                                 </div>
                                             </div>

@@ -71,7 +71,7 @@ export default function PayPage() {
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                     <h1 className="text-xl font-bold text-slate-900">Pay (Money wallet)</h1>
                     <p className="text-sm text-slate-500 mt-1">
-                        USDT0 on Plasma · gasless · fee-free peer payment
+                        USDC on BSC · gasless · fee-free peer payment
                     </p>
 
                     <label className="block text-sm font-medium text-slate-700 mt-6 mb-1">
@@ -86,13 +86,13 @@ export default function PayPage() {
                     <p className="text-xs text-slate-400 mt-1">
                         {recipient.trim()
                             ? isAddress
-                                ? 'Paying a raw Plasma address'
+                                ? 'Paying a raw BSC address'
                                 : 'Resolving handle → Money wallet'
-                            : 'Enter a HandlePay handle or a Plasma address'}
+                            : 'Enter a HandlePay handle or a BSC address'}
                     </p>
 
                     <label className="block text-sm font-medium text-slate-700 mt-4 mb-1">
-                        Amount (USDT0)
+                        Amount (USDC)
                     </label>
                     <input
                         value={amount}

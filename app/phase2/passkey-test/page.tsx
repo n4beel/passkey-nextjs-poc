@@ -390,7 +390,7 @@ function PasskeyRegistrationInner() {
                                 {moneyEvmWallet && (
                                     <div className="mb-4 p-4 bg-white/10 rounded-lg">
                                         <h3 className="text-lg font-semibold text-emerald-300 mb-2">🏦 Money Wallet</h3>
-                                        <p className="text-gray-300 text-xs mb-2">Spendable stables — USDT0 on Plasma</p>
+                                        <p className="text-gray-300 text-xs mb-2">Spendable stables — USDC on BSC</p>
                                         <p className="text-white">
                                             <strong className="text-blue-300">EVM:</strong> <span className="text-xs break-all font-mono">{moneyEvmWallet}</span>
                                         </p>
